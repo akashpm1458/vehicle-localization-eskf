@@ -209,7 +209,7 @@ Measured on the remote cloud machine (4-core Xeon, not the target laptop):
 
 | Command | Time | Peak memory | Output size |
 |---|---|---|---|
-| `demo` | 75 s | 254 MB | 155 MB |
+| `demo` | 51 s | 250 MB | 155 MB |
 | One filter run | about 2.5 s | — | — |
 
 ---

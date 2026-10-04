@@ -278,7 +278,7 @@
       "value": 1.0,
       "threshold": ">= 0.90",
       "met": true,
-      "note": "false rejection rate of clean GNSS: 0.0035"
+      "note": "false rejection rate of clean GNSS: 0.0034965034965034965"
     },
     {
       "target": "bias estimation improves position RMSE in E2 (investigate if not)",
@@ -295,7 +295,7 @@
   "failed_runs": [],
   "all_checks_passed": true,
   "all_targets_met": true,
-  "wall_time_s": 74.62031051000002,
-  "process_peak_memory_mb": 253.75390625,
-  "output_size_mb": 154.77819061279297
+  "wall_time_s": 51.0929480609999,
+  "process_peak_memory_mb": 250.25390625,
+  "output_size_mb": 154.78653812408447
 }

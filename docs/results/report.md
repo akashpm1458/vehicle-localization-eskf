@@ -1,6 +1,6 @@
 # Demo report
 
-Generated 2026-10-04 21:09 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
+Generated 2026-10-04 21:44 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
 
 > All sensor data are **synthetic**. "LiDAR" means **simulated LiDAR-localizer positions** (truth plus noise), not real scan matching. Initialization is **ground-truth-assisted**: the prior is the true state at t=0 minus a sampled perturbation.
 
@@ -8,8 +8,8 @@ Generated 2026-10-04 21:09 by vehicle_localization 0.1.0 from saved metrics in t
 
 - Deterministic suite checks: **34/34 passed**
 - Engineering targets: **4/4 met**
-- Runtime: 74.6 s wall time, process peak memory 254 MB, output size 154.8 MB
-- Host: remote/other host (not the target laptop): Intel(R) Xeon(R) Processor @ 2.80GHz, 4 logical CPUs, 15.7 GB RAM, Linux-6.18.44-fc-v64-x86_64-with-glibc2.39, Python 3.12.3
+- Runtime: 51.1 s wall time, process peak memory 250 MB, output size 154.8 MB
+- Host: remote/other host (not the target laptop): Intel(R) Xeon(R) Processor @ 2.10GHz, 4 logical CPUs, 15.7 GB RAM, Linux-6.18.44-fc-v70-x86_64-with-glibc2.39, Python 3.12.3
 
 ### Engineering targets
 
@@ -17,7 +17,7 @@ Generated 2026-10-04 21:09 by vehicle_localization 0.1.0 from saved metrics in t
 |---|---|---|---|---|---|
 | eskf15_all post-initialization 3-D position RMSE (biased case) | 7 | 0.096 | < 1.0 m | yes |  |
 | full aided estimator beats IMU-only over the complete run (position RMSE) | 7 | [0.103, 1006.703] | eskf15_all < imu_only | yes |  |
-| injected GNSS outlier recall with gating (eskf15_all) | 7 | 1.000 | >= 0.90 | yes | false rejection rate of clean GNSS: 0.0035 |
+| injected GNSS outlier recall with gating (eskf15_all) | 7 | 1.000 | >= 0.90 | yes | false rejection rate of clean GNSS: 0.0034965034965034965 |
 | bias estimation improves position RMSE in E2 (investigate if not) | 7 | [0.096, 0.162] | eskf15_all < eskf9_all | yes | comparison target, not a guaranteed result |
 
 ## 2. What was generated

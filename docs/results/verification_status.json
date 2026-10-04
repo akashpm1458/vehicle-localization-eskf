@@ -216,7 +216,7 @@
       "value": 1.0,
       "threshold": ">= 0.90",
       "met": true,
-      "note": "false rejection rate of clean GNSS: 0.0035"
+      "note": "false rejection rate of clean GNSS: 0.0034965034965034965"
     },
     {
       "target": "bias estimation improves position RMSE in E2 (investigate if not)",
@@ -254,7 +254,7 @@
       "value": 1.0,
       "threshold": ">= 0.90",
       "met": true,
-      "note": "false rejection rate of clean GNSS: 0.0017"
+      "note": "false rejection rate of clean GNSS: 0.0017482517482517483"
     },
     {
       "target": "bias estimation improves position RMSE in E2 (investigate if not)",
@@ -292,7 +292,7 @@
       "value": 1.0,
       "threshold": ">= 0.90",
       "met": true,
-      "note": "false rejection rate of clean GNSS: 0.0052"
+      "note": "false rejection rate of clean GNSS: 0.005244755244755245"
     },
     {
       "target": "bias estimation improves position RMSE in E2 (investigate if not)",
@@ -309,14 +309,14 @@
   "failed_runs": [],
   "all_checks_passed": true,
   "all_targets_met": true,
-  "wall_time_s": 47.52952432200004,
-  "process_peak_memory_mb": 143.1953125,
-  "output_size_mb": 125.16626453399658,
+  "wall_time_s": 32.80449025300004,
+  "process_peak_memory_mb": 143.4765625,
+  "output_size_mb": 125.16961574554443,
   "pytest": {
     "ran": true,
     "passed": true,
     "returncode": 0,
-    "summary": "140 passed in 48.73s"
+    "summary": "165 passed in 40.97s"
   },
   "per_seed": [
     {

@@ -15,11 +15,21 @@ import math
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.linalg import LinAlgError, cho_factor, cho_solve
+from scipy.stats import chi2
 
 from .config import MODES
 from .discretization import DISCRETIZERS, continuous_noise, error_dynamics, noise_mapping
-from .rotations import quat_from_rotvec, quat_multiply, quat_normalize, quat_to_matrix, so3_exp
-from .state import InitialPrior
+from .rotations import (
+    quat_from_rotvec,
+    quat_multiply,
+    quat_normalize,
+    quat_to_matrix,
+    right_jacobian,
+    skew,
+    so3_exp,
+)
+from .state import ATT, BA, BG, POS, VEL, InitialPrior
 
 
 class FilterNumericalError(RuntimeError):
@@ -91,6 +101,9 @@ class ErrorStateEKF:
         self.Qc = continuous_noise(config.accel_noise_density, config.gyro_noise_density,
                                    config.accel_bias_rw, config.gyro_bias_rw, n)
         self._discretize = DISCRETIZERS[config.discretization]
+        # Chi-square gate for a 3-D innovation (not 9: the scalar 3-sigma rule does not
+        # carry over to three dimensions).
+        self.gate_threshold = float(chi2.ppf(config.gating_probability, df=3))
         self.t_ns: int = prior.t_ns
         self.n_predict_steps = 0
         self.cov_stats = {"checks": 0, "roundoff_negative_eigs": 0, "min_eig_seen": math.inf}
@@ -130,6 +143,74 @@ class ErrorStateEKF:
         self.n_predict_steps += 1
         if self.n_predict_steps % self.cfg.covariance_check_every == 0:
             self.check_covariance("prediction")
+
+    # ------------------------------------------------------------------ correction
+    def predict_measurement(self, lever_arm_body: np.ndarray) -> np.ndarray:
+        """z_hat = p + R l: world position of a body-fixed sensor reference point."""
+        return self.p + quat_to_matrix(self.q) @ lever_arm_body
+
+    def measurement_jacobian(self, lever_arm_body: np.ndarray) -> np.ndarray:
+        """H = [I, 0, -R [l]x, 0, 0] (first three blocks only for the 9-state filter).
+
+        With R_true = R Exp(dtheta): R_true l ≈ R l + R [dtheta]x l = R l - R [l]x dtheta.
+        """
+        H = np.zeros((3, self.n))
+        H[:, POS] = np.eye(3)
+        H[:, ATT] = -quat_to_matrix(self.q) @ skew(lever_arm_body)
+        return H
+
+    def update_position(self, z_world: np.ndarray, covariance: np.ndarray, lever_arm_body: np.ndarray,
+                        sensor: str) -> dict:
+        """Gate, then correct with one 3-D position measurement. Returns an innovation record.
+
+        Steps: innovation and NIS (logged before gating) -> gate -> Kalman gain (solves,
+        no explicit inverse) -> Joseph covariance in the old tangent coordinates ->
+        inject (additive; attitude by right quaternion multiplication) -> covariance reset
+        with the SO(3) right Jacobian of the injected rotation.
+        A rejected measurement leaves the state and covariance untouched.
+        """
+        n = self.n
+        z_hat = self.predict_measurement(lever_arm_body)
+        r = z_world - z_hat
+        H = self.measurement_jacobian(lever_arm_body)
+        PHt = self.P @ H.T
+        S = H @ PHt + covariance
+        S = 0.5 * (S + S.T)
+        try:
+            cho = cho_factor(S, lower=True)
+        except LinAlgError as exc:
+            raise FilterNumericalError(
+                f"innovation covariance for sensor '{sensor}' at t_ns={self.t_ns} is not positive definite "
+                f"(diag S = {np.diag(S)}); check the measurement covariance and filter state"
+            ) from exc
+        nis = float(r @ cho_solve(cho, r))
+        record = {"sensor": sensor, "z": z_world.copy(), "zhat": z_hat, "r": r, "S": S, "nis": nis,
+                  "threshold": self.gate_threshold, "gating_enabled": self.cfg.gating_enabled, "accepted": True}
+        if self.cfg.gating_enabled and nis > self.gate_threshold:
+            record["accepted"] = False
+            return record
+
+        K = cho_solve(cho, PHt.T).T  # K = P H^T S^-1
+        dx = K @ r
+        IKH = np.eye(n) - K @ H
+        P_joseph = IKH @ self.P @ IKH.T + K @ covariance @ K.T
+
+        # Inject the error estimate into the nominal state.
+        self.p = self.p + dx[POS]
+        self.v = self.v + dx[VEL]
+        self.q = quat_normalize(quat_multiply(self.q, quat_from_rotvec(dx[ATT])))
+        if n == 15:
+            self.ba = self.ba + dx[BA]
+            self.bg = self.bg + dx[BG]
+
+        # Reset: express the covariance in the new tangent coordinates (error mean -> 0).
+        G = np.eye(n)
+        G[ATT, ATT] = right_jacobian(dx[ATT])
+        P = G @ P_joseph @ G.T
+        self.P = 0.5 * (P + P.T)
+        self.check_covariance(f"{sensor} update")
+        record["dx_norm_attitude_rad"] = float(np.linalg.norm(dx[ATT]))
+        return record
 
     # ------------------------------------------------------------------ diagnostics
     def check_covariance(self, where: str) -> None:

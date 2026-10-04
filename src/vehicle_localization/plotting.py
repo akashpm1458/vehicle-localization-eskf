@@ -85,3 +85,26 @@ def plot_ground_truth(truth, streams: dict, path: Path, dpi: int = 130) -> Path:
     save_csv(path.with_suffix(".csv"), {"t_s": t, "px": truth.p[:, 0], "py": truth.p[:, 1],
                                          "speed_mps": speed, "yaw_deg": np.rad2deg(yaw)})
     return _finish(fig, path, dpi)
+
+
+def plot_position_error(series: dict, path: Path, title: str, dropouts=None, logy: bool = False,
+                        dpi: int = 130) -> Path:
+    """Position error norm vs time for several runs; dropout intervals shaded."""
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    cols = {}
+    for i, (label, es) in enumerate(series.items()):
+        err = np.linalg.norm(es["dp"], axis=1)
+        ax.plot(es["t_s"], err, label=label, **style_for(label, i))
+        cols[f"{label} t_s"] = es["t_s"][::10]
+        cols[f"{label} pos_err_m"] = err[::10]
+    for j, (s, e, lab) in enumerate(dropouts or []):
+        ax.axvspan(s, e, color="0.85", hatch="//", alpha=0.6, label=lab if j == 0 or lab else None)
+    if logy:
+        ax.set_yscale("log")
+    ax.set_xlabel("time [s]")
+    ax.set_ylabel("3-D position error |truth - estimate| [m]")
+    ax.set_title(title)
+    ax.grid(alpha=0.3, which="both")
+    ax.legend(fontsize=8)
+    save_csv(path.with_suffix(".csv"), cols)
+    return _finish(fig, path, dpi)

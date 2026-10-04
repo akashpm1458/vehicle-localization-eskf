@@ -81,6 +81,11 @@ estimator:
   max_imu_gap_s: 0.05
   covariance_check_every: 100
   full_covariance_log_every: 10
+  fusion_policy: fuse
+  switching:
+    judge_probability: 0.9973
+    recover_after: 10
+    gnss_timeout_s: 0.5
 initialization:
   source: generated_perturbed_truth
   sigma:
@@ -109,6 +114,15 @@ experiment:
   - 0.7
   - 0.1
   - 1.2
+  gnss_degradation:
+    interval_s:
+    - 40.0
+    - 60.0
+    noise_scale: 5.0
+    bias_m:
+    - 4.0
+    - -3.0
+    - 1.5
   verification_seeds:
   - 7
   - 23
@@ -116,4 +130,5 @@ experiment:
 report:
   burn_in_s: 10.0
   dpi: 130
+  relative_window_s: 10.0
   output: results/suite

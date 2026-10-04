@@ -228,6 +228,9 @@ type-checked:
 | `truth_config.gnss.lever_arm_m`, `truth_config.lidar.lever_arm_m` | 3 finite numbers | raw-measurement reference errors | that stream's reference error is skipped, with a warning |
 | `corruptions.outliers` | object with `stream` (`gnss` or `lidar`) and an integer list `t_ns` | outlier recall and false-rejection rate | outlier metrics are skipped, with a warning |
 
+Other corruption labels, such as `corruptions.gnss_degradation` (interval, noise scale, bias, and
+the affected timestamps) written for experiment E9, are informational and are not used for scoring.
+
 An unreadable file, or one whose top level isn't an object (for example `[]` or `null`), turns off
 only those two evaluations. The ground truth itself is still used.
 

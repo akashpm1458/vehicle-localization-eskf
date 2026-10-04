@@ -31,7 +31,7 @@ from .dataset import DatasetError, load_dataset, load_ground_truth
 from .eskf import EstimatorConfig
 from .evaluation import error_series, evaluate_run, external_reference_errors
 from .runner import Dropout, load_run, run_estimator, save_run
-from .sensors import derive_outlier_dataset, generate_dataset
+from .sensors import derive_degraded_gnss_dataset, derive_outlier_dataset, generate_dataset
 from .sysinfo import dir_size_mb, package_versions, peak_memory_mb
 
 
@@ -44,6 +44,7 @@ class RunSpec:
     description: str
     estimator_overrides: dict = field(default_factory=dict)
     dropouts: list[tuple[str, float, float]] = field(default_factory=list)
+    analysis_intervals: list[tuple[float, float]] = field(default_factory=list)
 
 
 def _json_default(o):
@@ -62,7 +63,8 @@ def write_json(path: Path, obj) -> None:
 
 
 def execute_run(dataset_dir: Path, cfg: dict, mode: str, out_dir: Path, *, estimator_overrides: dict | None = None,
-                dropouts: list[tuple[str, float, float]] | None = None, meta: dict | None = None) -> dict:
+                dropouts: list[tuple[str, float, float]] | None = None, meta: dict | None = None,
+                analysis_intervals: list[tuple[float, float]] | None = None) -> dict:
     """Run, save and evaluate one estimator configuration. Returns a summary dict."""
     # Validate everything that can be wrong before any work is done.
     drops = [Dropout.from_seconds(s, a, b) for s, a, b in (dropouts or [])]
@@ -90,13 +92,15 @@ def execute_run(dataset_dir: Path, cfg: dict, mode: str, out_dir: Path, *, estim
             labels = {"stream": o["stream"], "t_ns": o["t_ns"]}
     intervals = sorted({(a, b) for _, a, b in (dropouts or [])})
     metrics = evaluate_run(result, truth, result.n_states, cfg["report"]["burn_in_s"], dropouts=intervals,
-                           outlier_labels=labels)
+                           outlier_labels=labels, analysis_intervals=analysis_intervals,
+                           relative_window_s=cfg["report"]["relative_window_s"])
     if metrics["evaluation_available"]:
         metrics["external_position_reference_errors"] = external_reference_errors(ds.streams, truth)
     elif truth is not None:
         warnings_list.append(f"accuracy metrics disabled: {metrics['accuracy']}")
     metrics["counts"] = result.counts
     metrics["dropouts_applied"] = result.info["dropouts"]
+    metrics["fusion_policy"] = result.info["fusion_policy"]
     metrics["warnings"] = warnings_list
     metrics["numerics"] = {
         "covariance_checks": result.info["covariance_checks"],
@@ -232,6 +236,22 @@ def suite_specs(cfg: dict) -> list[RunSpec]:
         RunSpec("E7", "E7_eskf15_all_lidar_arm_wrong", "biased", "eskf15_all",
                 f"Assumed LiDAR lever arm {wrong_arm} (true {true_arm})", {"lever_arms_m": {"lidar": wrong_arm}}),
     ]
+    deg = exp["gnss_degradation"]
+    g0, g1 = deg["interval_s"]
+    sw = {"fusion_policy": "switch"}
+    specs += [
+        RunSpec("E9", "E9_eskf15_gnss_degraded", "biased_gnss_degraded", "eskf15_gnss",
+                f"GNSS-only, GNSS degraded in [{g0}, {g1}) s (receiver unaware)", analysis_intervals=[(g0, g1)]),
+        RunSpec("E9", "E9_eskf15_all_fuse_degraded", "biased_gnss_degraded", "eskf15_all",
+                "GNSS + LiDAR fused, GNSS degraded", analysis_intervals=[(g0, g1)]),
+        RunSpec("E9", "E9_eskf15_all_switch_degraded", "biased_gnss_degraded", "eskf15_all",
+                "GNSS / LiDAR switching, GNSS degraded", sw, analysis_intervals=[(g0, g1)]),
+        RunSpec("E10", "E10_eskf15_all_switch", "biased", "eskf15_all",
+                "GNSS / LiDAR switching on nominal data (compare E2_eskf15_all, fused)", sw),
+        RunSpec("E10", "E10_eskf15_all_switch_gnss_dropout", "biased", "eskf15_all",
+                f"GNSS / LiDAR switching, GNSS absent [{d0}, {d1}) s (compare E4, fused)", sw,
+                dropouts=[("gnss", d0, d1)]),
+    ]
     for mode in ("eskf15_gnss", "eskf15_all"):
         for gate in (False, True):
             specs.append(RunSpec("E8", f"E8_{mode}_gating_{'on' if gate else 'off'}", "biased_outliers", mode,
@@ -244,12 +264,15 @@ def prepare_datasets(cfg: dict, data_dir: Path, seed: int) -> dict[str, Path]:
     """Generate the base datasets for one seed (each saved once) and derived variants."""
     c = deep_merge(cfg, {"dataset": {"seed": seed}})
     paths = {"zero_bias": data_dir / "zero_bias", "biased": data_dir / "biased",
-             "biased_outliers": data_dir / "biased_outliers"}
+             "biased_outliers": data_dir / "biased_outliers",
+             "biased_gnss_degraded": data_dir / "biased_gnss_degraded"}
     generate_dataset(deep_merge(c, {"truth": {"bias_mode": "zero"}, "dataset": {"name": "zero_bias"}}),
                      paths["zero_bias"], overwrite=True)
     generate_dataset(deep_merge(c, {"truth": {"bias_mode": "biased"}, "dataset": {"name": "biased"}}),
                      paths["biased"], overwrite=True)
     derive_outlier_dataset(paths["biased"], paths["biased_outliers"], c["experiment"]["outliers"], overwrite=True)
+    derive_degraded_gnss_dataset(paths["biased"], paths["biased_gnss_degraded"], c["experiment"]["gnss_degradation"],
+                                 overwrite=True)
     return paths
 
 
@@ -285,6 +308,14 @@ def summarize(spec: RunSpec, metrics: dict, seed: int) -> dict:
         row[f"{s}_accepted"] = st["accepted"] if st else 0
         row[f"{s}_rejected"] = st["rejected"] if st else 0
         row[f"{s}_nis_mean_pre_gate"] = st["nis_pre_gate_mean"] if st else None
+    rpe = metrics.get("relative_position_error", {})
+    row["rpe_mean_m"], row["rpe_max_m"] = rpe.get("mean_m"), rpe.get("max_m")
+    ai = (metrics.get("analysis_intervals") or [None])[0]
+    row["max_pos_err_in_interval_m"] = ai["max_position_error_during_m"] if ai else None
+    pol = metrics.get("fusion_policy", {})
+    row["fusion_policy"] = pol.get("name", "fuse")
+    row["time_on_lidar_s"] = pol.get("time_on_lidar_s")
+    row["policy_switches"] = len(pol.get("switches", [])) if pol.get("name") == "switch" else None
     od = metrics.get("outlier_detection")
     row["outlier_recall"] = od["recall"] if od else None
     row["false_rejection_rate"] = od["false_rejection_rate"] if od else None
@@ -394,6 +425,7 @@ def run_suite(cfg: dict, output_dir: Path, seeds: list[int], include_e0: bool = 
             try:
                 res = execute_run(paths[spec.dataset], cfg, spec.mode, run_dir,
                                   estimator_overrides=spec.estimator_overrides, dropouts=spec.dropouts,
+                                  analysis_intervals=spec.analysis_intervals,
                                   meta={"experiment": spec.experiment, "run_id": spec.run_id,
                                         "description": spec.description})
             except Exception as exc:  # keep going; failed runs are reported and make the suite fail

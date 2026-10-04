@@ -2,7 +2,7 @@
 
 Estimate a vehicle's motion from noisy sensors using an **error-state Kalman filter (ESKF)**.
 
-> **Status: working.** All required steps are implemented and tested: 165 tests pass, and every engineering target was met on seeds 7, 23 and 42. The results below come from real runs on a remote cloud machine, **not** the target laptop. Re-run `demo` to get numbers for your own machine.
+> **Status: working.** All required steps are implemented and tested: 175 tests pass, and every engineering target was met on seeds 7, 23 and 42. The results below come from real runs on a remote cloud machine, **not** the target laptop. Re-run `demo` to get numbers for your own machine.
 
 ---
 
@@ -108,6 +108,11 @@ All five use the same data, so the comparison is fair.
 | E6 | Filter trusts GNSS too much or too little |
 | E7 | Wrong LiDAR mounting position |
 | E8 | Fake GNSS outliers, rejection on vs. off |
+| E9 | GNSS degraded for 20 s (5× noise plus a drifting multipath bias), receiver unaware |
+| E10 | Fuse both position sources vs. switch between them (one at a time) |
+
+E9 and E10 come from two reference papers: Xu (ICMAE 2024), a GNSS/IMU ESKF on KITTI, and
+Wang et al. (*Mathematics* 2024), which switches between GNSS and LiDAR odometry.
 
 ---
 
@@ -135,6 +140,9 @@ Measured results (seed 7; see [docs/results/report.md](docs/results/report.md)).
 | E6: GNSS trusted 10× too much | The GNSS-only filter rejects 581 of 600 fixes and diverges |
 | E7: lever arm 0.22 m wrong | RMSE rises to 0.25 m while NIS barely changes |
 | E8: 5% GNSS outliers | 100% of outliers rejected; 0.35% of clean fixes rejected |
+| E9: GNSS degraded, GNSS-only filter | The gate rejects the bad fixes, the filter drifts, then also rejects the good fixes afterwards: error peaks at 93 m |
+| E9: GNSS degraded, GNSS + LiDAR fused | Error stays below 0.2 m |
+| E10: fuse vs switch | Fusing beat switching in 3 of 3 cases (0.096 m vs 0.54–0.66 m) |
 
 Multi-seed check (seeds 7, 23, 42): `eskf15_all` position RMSE was 0.096, 0.099 and 0.096 m, all below the 1.0 m target. See [docs/results/verification_report.md](docs/results/verification_report.md).
 
@@ -209,7 +217,7 @@ Measured on the remote cloud machine (4-core Xeon, not the target laptop):
 
 | Command | Time | Peak memory | Output size |
 |---|---|---|---|
-| `demo` | 51 s | 250 MB | 155 MB |
+| `demo` | 62 s | 293 MB | 192 MB |
 | One filter run | about 2.5 s | — | — |
 
 ---
@@ -225,6 +233,8 @@ Measured on the remote cloud machine (4-core Xeon, not the target laptop):
 - The GNSS and LiDAR errors are independent white noise. Real sensors have correlated, slowly drifting errors.
 - Yaw and the vertical gyro bias are only weakly observable from position measurements. They improve during turns.
 - Only a lever-arm (translation) calibration error was tested, not a rotation (boresight) error.
+- The fuse-vs-switch result (E10) is for two sources with independent errors. Real localizers with correlated
+  or drifting errors may behave differently.
 
 ---
 

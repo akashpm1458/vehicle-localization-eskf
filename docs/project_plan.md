@@ -27,6 +27,13 @@ These go beyond the brief or interpret it:
 - **E3** adds a no-dropout reference run.
 - **E5** adds a gating-off diagnostic run.
 - **`verify`** runs E0, the pytest suite, E2 and E8 for each seed, rather than the full matrix, to stay within the disk budget.
+- **E9, E10 and RPE** were added after reviewing two papers (Xu, ICMAE 2024; Wang et al., *Mathematics* 2024):
+  - E9: degraded GNSS that the receiver doesn't report.
+  - E10: an option to switch between sources instead of fusing them (`estimator.fusion_policy`).
+  - RPE: relative position error per window.
+
+  The KITTI comparison was **not** done: it needs a registered download that exceeds the disk budget,
+  and its OXTS ground truth would need careful separation from the GNSS input.
 
 ### Not done or not verified
 

@@ -1,15 +1,15 @@
 # Demo report
 
-Generated 2026-10-04 21:44 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
+Generated 2026-10-04 22:30 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
 
 > All sensor data are **synthetic**. "LiDAR" means **simulated LiDAR-localizer positions** (truth plus noise), not real scan matching. Initialization is **ground-truth-assisted**: the prior is the true state at t=0 minus a sampled perturbation.
 
 ## 1. Status
 
-- Deterministic suite checks: **34/34 passed**
+- Deterministic suite checks: **39/39 passed**
 - Engineering targets: **4/4 met**
-- Runtime: 51.1 s wall time, process peak memory 250 MB, output size 154.8 MB
-- Host: remote/other host (not the target laptop): Intel(R) Xeon(R) Processor @ 2.10GHz, 4 logical CPUs, 15.7 GB RAM, Linux-6.18.44-fc-v70-x86_64-with-glibc2.39, Python 3.12.3
+- Runtime: 61.9 s wall time, process peak memory 293 MB, output size 192.3 MB
+- Host: remote/other host (not the target laptop): Intel(R) Xeon(R) Processor @ 2.10GHz, 4 logical CPUs, 15.7 GB RAM, Linux-6.18.44-fc-v64-x86_64-with-glibc2.39, Python 3.12.3
 
 ### Engineering targets
 
@@ -148,6 +148,38 @@ Observation (computed): the wrong body-fixed lever arm (error [0.20, 0.10, 0.00]
 - eskf15_gnss: gating reduced post-burn-in position RMSE (2.296 m off -> 0.701 m on); recall 1.000, clean-measurement false rejection rate 0.0017.
 - eskf15_all: gating reduced post-burn-in position RMSE (0.104 m off -> 0.096 m on); recall 1.000, clean-measurement false rejection rate 0.0035.
 
+### E9 - degraded GNSS (viaduct / urban canyon stand-in)
+
+Inside [40, 60) s the GNSS noise standard deviation is multiplied by 5 and a smooth multipath-like bias peaking at [4.0, -3.0, 1.5] m is added. The receiver keeps reporting its nominal covariance, so the filter is not told. The 'switch' policy uses one source at a time (GNSS while its innovations are consistent, LiDAR otherwise) - an innovation-test version of the sensor switching in Wang et al. (2024). 'fuse' uses both sources, each weighted by its covariance, behind the chi-square gate.
+
+| run | mode | pos RMSE [m] | pos RMSE whole [m] | horiz. RMSE [m] | vel RMSE [m/s] | att RMSE [deg] | max pos err [m] | GNSS acc/rej | LiDAR acc/rej | GNSS NIS | LiDAR NIS | max err in degraded section [m] | RPE mean/max [m] | time on LiDAR [s] |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| E9_eskf15_gnss_degraded | eskf15_gnss | 27.041 | 25.891 | 26.997 | 1.655 | 6.874 | 93.326 | 435/165 | 0/0 | 15.37 | n/a | 45.901 | 13.720/78.620 | n/a |
+| E9_eskf15_all_fuse_degraded | eskf15_all | 0.096 | 0.103 | 0.075 | 0.072 | 2.052 | 0.697 | 503/97 | 1196/4 | 17.68 | 2.98 | 0.191 | 0.163/0.711 | n/a |
+| E9_eskf15_all_switch_degraded | eskf15_all | 0.539 | 0.555 | 0.366 | 0.192 | 1.859 | 1.375 | 481/0 | 237/1 | 2.65 | 3.22 | 0.311 | 0.686/1.247 | 23.8 |
+
+- E9_eskf15_gnss_degraded: max error 45.901 m inside the section, 45.901 m at its end, 61.932 m 5s after; 50 of 50 updates rejected in the 10 s after it.
+  **Gate lock-out (computed):** the gate rejected most degraded GNSS fixes, the filter coasted on the IMU, and after the section ended the now-correct GNSS disagreed so strongly with the drifted estimate that it kept being rejected. Gating protects against short outliers but can turn a long degradation into a much larger error when there is no second source.
+- E9_eskf15_all_fuse_degraded: max error 0.191 m inside the section, 0.065 m at its end, 0.101 m 5s after; 0 of 150 updates rejected in the 10 s after it.
+- E9_eskf15_all_switch_degraded: max error 0.311 m inside the section, 0.071 m at its end, 0.352 m 5s after; 0 of 59 updates rejected in the 10 s after it.
+
+### E10 - fuse vs switch
+
+| run | mode | pos RMSE [m] | pos RMSE whole [m] | horiz. RMSE [m] | vel RMSE [m/s] | att RMSE [deg] | max pos err [m] | GNSS acc/rej | LiDAR acc/rej | GNSS NIS | LiDAR NIS | policy | RPE mean/max [m] | time on LiDAR [s] | switches |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| E2_eskf15_all | eskf15_all | 0.096 | 0.103 | 0.075 | 0.072 | 1.978 | 0.697 | 598/2 | 1196/4 | 2.79 | 2.98 | fuse | 0.164/0.711 | n/a | n/a |
+| E10_eskf15_all_switch | eskf15_all | 0.655 | 0.659 | 0.452 | 0.221 | 1.470 | 1.430 | 590/0 | 20/0 | 2.76 | 2.72 | switch | 0.769/1.252 | 2.0 | 2.000 |
+| E4_eskf15_all_gnss_dropout | eskf15_all | 0.096 | 0.103 | 0.076 | 0.072 | 2.040 | 0.697 | 498/2 | 1196/4 | 2.71 | 2.98 | fuse | 0.164/0.711 | n/a | n/a |
+| E10_eskf15_all_switch_gnss_dropout | eskf15_all | 0.539 | 0.555 | 0.366 | 0.192 | 1.840 | 1.375 | 481/0 | 234/1 | 2.65 | 3.21 | switch | 0.686/1.248 | 23.5 | 4.000 |
+| E9_eskf15_all_fuse_degraded | eskf15_all | 0.096 | 0.103 | 0.075 | 0.072 | 2.052 | 0.697 | 503/97 | 1196/4 | 17.68 | 2.98 | fuse | 0.163/0.711 | n/a | n/a |
+| E9_eskf15_all_switch_degraded | eskf15_all | 0.539 | 0.555 | 0.366 | 0.192 | 1.859 | 1.375 | 481/0 | 237/1 | 2.65 | 3.22 | switch | 0.686/1.247 | 23.8 | 4.000 |
+
+- nominal data: fused 0.096 m vs switching 0.655 m position RMSE (6.8x).
+- GNSS dropout: fused 0.096 m vs switching 0.539 m position RMSE (5.6x).
+- degraded GNSS: fused 0.096 m vs switching 0.539 m position RMSE (5.6x).
+
+Observation (computed): switching had the lower RMSE in 0 of 3 comparisons. Switching discards the source it is not currently using, while the Kalman update already weights both sources by their covariances and the gate removes inconsistent fixes. These sensors are synthetic with independent errors; real localizers with correlated or drifting errors could change the balance, so this is a result for this setup, not a general law.
+
 ### Raw external position measurements (reference)
 
 Each measurement compared with the truth of **its own reference point** at its own timestamp (not a causal estimator):
@@ -170,6 +202,7 @@ Each measurement compared with the truth of **its own reference point** at its o
 - [fig08_summary.png](figures/fig08_summary.png) - Compact experiment summary (metric values with units)
 - [fig09_e1_position_error.png](figures/fig09_e1_position_error.png) - E1: IMU-only vs 9-state fusion on zero-bias data (log scale)
 - [fig10_e6_gnss_covariance_scaling.png](figures/fig10_e6_gnss_covariance_scaling.png) - E6: effect of the assumed GNSS covariance scale
+- [fig11_e9_e10_degraded_gnss_and_switching.png](figures/fig11_e9_e10_degraded_gnss_and_switching.png) - E9/E10: position error with degraded GNSS (shaded) for GNSS-only, fused and switching filters, and which source the switching filter used
 
 ![trajectory](figures/fig01_trajectory_xy.png)
 

@@ -49,6 +49,7 @@ RANDOM_STREAMS = {
     "lidar_noise": 104,
     "prior": 105,
     "outliers": 106,
+    "degradation": 107,
 }
 
 
@@ -322,3 +323,59 @@ def derive_outlier_dataset(
     meta["derived_from"] = str(base)
     write_json(out / "metadata.json", meta)
     return {"stream": stream, "n_outliers": int(n_out), "n_measurements": int(t_ns.size), "labels": labels}
+
+
+def degradation_bias(t_s: np.ndarray, start_s: float, end_s: float, bias_m) -> np.ndarray:
+    """Smooth multipath-like bias: 0 outside [start, end), peaking at bias_m mid-interval."""
+    t_s = np.asarray(t_s, dtype=float)
+    inside = (t_s >= start_s) & (t_s < end_s)
+    shape = np.where(inside, np.sin(np.pi * (t_s - start_s) / (end_s - start_s)), 0.0)
+    return shape[:, None] * np.asarray(bias_m, dtype=float)[None, :]
+
+
+def derive_degraded_gnss_dataset(base_dir: str | Path, output_dir: str | Path, degradation_cfg: dict,
+                                 overwrite: bool = False) -> dict:
+    """Copy a base dataset and degrade GNSS inside one interval (a viaduct/urban-canyon stand-in).
+
+    Inside [start, end): extra white noise so the total std is ``noise_scale`` times the
+    nominal one, plus a smooth bias (``degradation_bias``). The REPORTED covariance in
+    gnss.csv is left unchanged - the receiver does not know it is degraded, which is the
+    hard case for any filter. Extra noise comes from the dataset's 'degradation' random
+    stream; all other data stay identical. Labels go to truth_metadata.json only.
+    """
+    base, out = Path(base_dir), Path(output_dir)
+    _prepare_output(out, overwrite)
+    for f in base.iterdir():
+        if f.is_file():
+            shutil.copy2(f, out / f.name)
+    meta = read_json(base / "metadata.json")
+    tmeta = read_json(base / "truth_metadata.json")
+    from .dataset import POSITION_COLUMNS
+
+    raw = np.loadtxt(base / "gnss.csv", delimiter=",", skiprows=1, ndmin=2)
+    t_ns = np.loadtxt(base / "gnss.csv", delimiter=",", skiprows=1, usecols=0, dtype=np.int64, ndmin=1)
+    start_s, end_s = (float(x) for x in degradation_cfg["interval_s"])
+    t_s = t_ns * 1e-9
+    inside = (t_s >= start_s) & (t_s < end_s)
+    sigma = np.sqrt(raw[:, [4, 7, 9]])  # reported per-axis std: r_xx, r_yy, r_zz
+    scale = float(degradation_cfg["noise_scale"])
+    extra = stream_rng(meta["seed"], "degradation").standard_normal((t_ns.size, 3)) * sigma * np.sqrt(scale**2 - 1)
+    extra[~inside] = 0.0
+    raw[:, 1:4] += extra + degradation_bias(t_s, start_s, end_s, degradation_cfg["bias_m"])
+    raw[:, 0] = t_ns
+    np.savetxt(out / "gnss.csv", raw, delimiter=",", header=",".join(POSITION_COLUMNS), comments="",
+               fmt=["%d"] + ["%.17g"] * 9)
+    tmeta.setdefault("corruptions", {})
+    tmeta["corruptions"]["gnss_degradation"] = {
+        "interval_s": [start_s, end_s],
+        "noise_scale": scale,
+        "bias_m": list(degradation_cfg["bias_m"]),
+        "bias_profile": "bias_m * sin(pi * (t - start) / (end - start)) inside the interval",
+        "reported_covariance": "unchanged (receiver unaware)",
+        "t_ns": t_ns[inside].tolist(),
+    }
+    write_json(out / "truth_metadata.json", tmeta)
+    meta["name"] = f"{meta['name']}_gnss_degraded"
+    meta["derived_from"] = str(base)
+    write_json(out / "metadata.json", meta)
+    return {"n_degraded": int(inside.sum()), "n_measurements": int(t_ns.size)}

@@ -1,16 +1,16 @@
 # Verification report
 
-Generated 2026-10-04 21:45 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
+Generated 2026-10-04 22:31 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
 
 > All sensor data are **synthetic**. "LiDAR" means **simulated LiDAR-localizer positions** (truth plus noise), not real scan matching. Initialization is **ground-truth-assisted**: the prior is the true state at t=0 minus a sampled perturbation.
 
 ## 1. Status
 
 - Deterministic suite checks: **26/26 passed**
-- pytest: **PASSED** (165 passed in 40.97s)
+- pytest: **PASSED** (175 passed in 45.22s)
 - Engineering targets: **12/12 met**
-- Runtime: 32.8 s wall time, process peak memory 143 MB, output size 125.2 MB
-- Host: remote/other host (not the target laptop): Intel(R) Xeon(R) Processor @ 2.10GHz, 4 logical CPUs, 15.7 GB RAM, Linux-6.18.44-fc-v70-x86_64-with-glibc2.39, Python 3.12.3
+- Runtime: 34.7 s wall time, process peak memory 144 MB, output size 139.8 MB
+- Host: remote/other host (not the target laptop): Intel(R) Xeon(R) Processor @ 2.10GHz, 4 logical CPUs, 15.7 GB RAM, Linux-6.18.44-fc-v64-x86_64-with-glibc2.39, Python 3.12.3
 
 ### Engineering targets
 
@@ -93,6 +93,14 @@ Per-axis bias RMSE after burn-in (15-state): accelerometer [0.0135, 0.0159, 0.00
 | E8_eskf15_all_gating_on | eskf15_all | 0.096 | 0.103 | 0.075 | 0.072 | 1.962 | 0.697 | 570/30 | 1196/4 | 33.08 | 2.98 | 1.000 | 0.0035 |
 
 - eskf15_all: gating reduced post-burn-in position RMSE (0.104 m off -> 0.096 m on); recall 1.000, clean-measurement false rejection rate 0.0035.
+
+### E10 - fuse vs switch
+
+| run | mode | pos RMSE [m] | pos RMSE whole [m] | horiz. RMSE [m] | vel RMSE [m/s] | att RMSE [deg] | max pos err [m] | GNSS acc/rej | LiDAR acc/rej | GNSS NIS | LiDAR NIS | policy | RPE mean/max [m] | time on LiDAR [s] | switches |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| E2_eskf15_all | eskf15_all | 0.096 | 0.103 | 0.075 | 0.072 | 1.978 | 0.697 | 598/2 | 1196/4 | 2.79 | 2.98 | fuse | 0.164/0.711 | n/a | n/a |
+
+
 
 ### Raw external position measurements (reference)
 

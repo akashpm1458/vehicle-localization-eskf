@@ -220,6 +220,46 @@
       "passed": true
     },
     {
+      "check": "seed 7 E9_eskf15_gnss_degraded: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E9_eskf15_all_fuse_degraded: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E9_eskf15_all_switch_degraded: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E10_eskf15_all_switch: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E10_eskf15_all_switch_gnss_dropout: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
       "check": "seed 7 E8_eskf15_gnss_gating_off: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
       "value": {
         "roundoff_negative_eigs": 0,
@@ -295,7 +335,7 @@
   "failed_runs": [],
   "all_checks_passed": true,
   "all_targets_met": true,
-  "wall_time_s": 51.0929480609999,
-  "process_peak_memory_mb": 250.25390625,
-  "output_size_mb": 154.78653812408447
+  "wall_time_s": 61.87874584300005,
+  "process_peak_memory_mb": 292.890625,
+  "output_size_mb": 192.3138084411621
 }

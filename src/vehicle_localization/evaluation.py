@@ -211,8 +211,31 @@ def external_reference_errors(streams: dict, truth: GroundTruth) -> dict:
     return out
 
 
+def relative_position_error(es: dict, window_s: float) -> dict:
+    """Relative position error over consecutive, non-overlapping windows.
+
+    For each window [t, t + W): | (p_est(t+W) - p_est(t)) - (p_true(t+W) - p_true(t)) |.
+    This measures drift accumulated within a window, independent of any constant offset
+    (the per-interval metric used by Wang et al. 2024, there with W = 150 s).
+    """
+    t = es["t_s"]
+    if t.size < 2 or t[-1] - t[0] < window_s:
+        return {"window_s": window_s, "windows": 0, "mean_m": None, "max_m": None, "per_window": []}
+    starts = np.arange(t[0], t[-1] - window_s + 1e-9, window_s)
+    i0 = np.searchsorted(t, starts)
+    i1 = np.searchsorted(t, starts + window_s)
+    i1 = np.minimum(i1, t.size - 1)
+    # dp = truth - estimate, so the drift difference is dp(end) - dp(start)
+    rpe = np.linalg.norm(es["dp"][i1] - es["dp"][i0], axis=1)
+    return {"window_s": window_s, "windows": int(rpe.size), "mean_m": float(rpe.mean()),
+            "max_m": float(rpe.max()),
+            "per_window": [{"start_s": float(a), "rpe_m": float(b)} for a, b in zip(starts, rpe)]}
+
+
 def evaluate_run(run, truth: GroundTruth | None, n_states: int, burn_in_s: float = 10.0,
-                 dropouts: list[tuple[float, float]] | None = None, outlier_labels: dict | None = None) -> dict:
+                 dropouts: list[tuple[float, float]] | None = None, outlier_labels: dict | None = None,
+                 analysis_intervals: list[tuple[float, float]] | None = None,
+                 relative_window_s: float = 10.0) -> dict:
     """Metrics for one run.
 
     ``metrics["evaluation_available"]`` says whether accuracy metrics exist. They are
@@ -249,6 +272,9 @@ def evaluate_run(run, truth: GroundTruth | None, n_states: int, burn_in_s: float
         metrics["burn_in_note"] = note
     if dropouts:
         metrics["dropouts"] = [dropout_metrics(es, inn, s, e) for s, e in dropouts]
+    if analysis_intervals:  # e.g. a degraded-GNSS section: same before/during/after statistics
+        metrics["analysis_intervals"] = [dropout_metrics(es, inn, s, e) for s, e in analysis_intervals]
+    metrics["relative_position_error"] = relative_position_error(es, relative_window_s)
     if outlier_labels:
         metrics["outlier_detection"] = outlier_detection(inn, outlier_labels["t_ns"], outlier_labels["stream"])
     return metrics

@@ -57,6 +57,11 @@ class EstimatorConfig:
     max_imu_gap_s: float
     covariance_check_every: int
     full_covariance_log_every: int
+    # Measurement-selection policy, applied by the runner (the filter maths is unchanged).
+    fusion_policy: str = "fuse"
+    switch_judge_probability: float = 0.9973
+    switch_recover_after: int = 10
+    switch_gnss_timeout_s: float = 0.5
     extra: dict = field(default_factory=dict)
 
     @staticmethod
@@ -81,6 +86,10 @@ class EstimatorConfig:
             max_imu_gap_s=float(est["max_imu_gap_s"]),
             covariance_check_every=int(est["covariance_check_every"]),
             full_covariance_log_every=int(est["full_covariance_log_every"]),
+            fusion_policy=est.get("fusion_policy", "fuse"),
+            switch_judge_probability=float(est.get("switching", {}).get("judge_probability", 0.9973)),
+            switch_recover_after=int(est.get("switching", {}).get("recover_after", 10)),
+            switch_gnss_timeout_s=float(est.get("switching", {}).get("gnss_timeout_s", 0.5)),
         )
 
 

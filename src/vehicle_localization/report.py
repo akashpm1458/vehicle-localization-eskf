@@ -47,6 +47,9 @@ FIGURES = [
     ("fig08_summary.png", "Compact experiment summary (metric values with units)"),
     ("fig09_e1_position_error.png", "E1: IMU-only vs 9-state fusion on zero-bias data (log scale)"),
     ("fig10_e6_gnss_covariance_scaling.png", "E6: effect of the assumed GNSS covariance scale"),
+    ("fig11_e9_e10_degraded_gnss_and_switching.png", "E9/E10: position error with degraded GNSS (shaded) for "
+                                                     "GNSS-only, fused and switching filters, and which source "
+                                                     "the switching filter used"),
 ]
 
 
@@ -59,8 +62,9 @@ def make_suite_figures(suite_dir: Path, cfg: dict, seed: int) -> list[Path]:
     dpi = cfg["report"]["dpi"]
     runs_dir = suite_dir / "runs" / f"seed_{seed}"
     data_dir = suite_dir / "data" / f"seed_{seed}"
-    truth = {k: load_ground_truth(data_dir / k) for k in ("zero_bias", "biased", "biased_outliers")}
-    dataset_of = {"E1": "zero_bias", "E8": "biased_outliers"}
+    truth = {k: load_ground_truth(data_dir / k) for k in ("zero_bias", "biased", "biased_outliers",
+                                                           "biased_gnss_degraded") if (data_dir / k).exists()}
+    dataset_of = {"E1": "zero_bias", "E8": "biased_outliers", "E9": "biased_gnss_degraded"}
     d0, d1 = cfg["experiment"]["dropout_interval_s"]
     cache: dict = {}
 
@@ -70,7 +74,7 @@ def make_suite_figures(suite_dir: Path, cfg: dict, seed: int) -> list[Path]:
         return cache[rid]
 
     def es(rid):
-        return error_series(run(rid), truth[dataset_of.get(rid[:2], "biased")])
+        return error_series(run(rid), truth[dataset_of.get(rid.split("_")[0], "biased")])
 
     def have(*rids):
         return all((runs_dir / r / "estimates.csv").exists() for r in rids)
@@ -119,6 +123,14 @@ def make_suite_figures(suite_dir: Path, cfg: dict, seed: int) -> list[Path]:
     e6 = [r for r in rows if r["experiment"] == "E6"]
     if e6:
         out.append(_e6_figure(e6, fig_dir / FIGURES[10][0], dpi))
+    e9 = ["E9_eskf15_gnss_degraded", "E9_eskf15_all_fuse_degraded", "E9_eskf15_all_switch_degraded",
+          "E10_eskf15_all_switch"]
+    if have(*e9):
+        g0, g1 = cfg["experiment"]["gnss_degradation"]["interval_s"]
+        pol = json.loads((runs_dir / "E9_eskf15_all_switch_degraded" / "metrics.json").read_text())["fusion_policy"]
+        out.append(_e9_figure({"GNSS only (E9)": es(e9[0]), "fuse GNSS + LiDAR (E9)": es(e9[1]),
+                               "switch GNSS / LiDAR (E9)": es(e9[2]), "switch, nominal data (E10)": es(e9[3])},
+                              pol, g0, g1, fig_dir / FIGURES[11][0], dpi))
     return out
 
 
@@ -154,6 +166,40 @@ def _calibration_dropout_figure(es_ok, es_bad, es_drop, d0, d1, path: Path, dpi:
     ax.grid(alpha=0.3, which="both")
     ax.legend(fontsize=8)
     cols["e5_t_s"], cols["e5_err_m"], cols["e5_3sigma_m"] = t, err, bound
+    save_csv(path.with_suffix(".csv"), cols)
+    return _finish(fig, path, dpi)
+
+
+def _e9_figure(series: dict, policy: dict, g0: float, g1: float, path: Path, dpi: int) -> Path:
+    fig, axes = plt.subplots(2, 1, figsize=(11, 7), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
+    ax = axes[0]
+    cols = {}
+    for i, (label, e) in enumerate(series.items()):
+        err = np.linalg.norm(e["dp"], axis=1)
+        ax.plot(e["t_s"], err, label=label, **style_for(label, i))
+        cols[f"{label} t_s"], cols[f"{label} pos_err_m"] = e["t_s"][::10], err[::10]
+    for a in axes:
+        a.axvspan(g0, g1, color="0.85", hatch="//", alpha=0.6)
+    ax.set_yscale("log")
+    ax.set_ylabel("3-D position error [m]")
+    ax.set_title(f"E9/E10: GNSS degraded in [{g0:g}, {g1:g}) s (shaded), receiver unaware")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+    # source used by the switching filter (E9)
+    t_end = series[next(iter(series))]["t_s"][-1]
+    times, src = [0.0], [1]
+    for sw in policy.get("switches", []):
+        times.append(sw["t_s"])
+        src.append(1 if sw["to"] == "gnss" else 0)
+    times.append(t_end)
+    src.append(src[-1])
+    axes[1].step(times, src, where="post", color="k", lw=1.5)
+    axes[1].set_yticks([0, 1], ["LiDAR", "GNSS"])
+    axes[1].set_ylim(-0.3, 1.3)
+    axes[1].set_ylabel("switch (E9)\nsource")
+    axes[1].set_xlabel("time [s]")
+    axes[1].grid(alpha=0.3)
+    cols["switch_t_s"], cols["switch_source_gnss1_lidar0"] = np.array(times), np.array(src, float)
     save_csv(path.with_suffix(".csv"), cols)
     return _finish(fig, path, dpi)
 
@@ -511,6 +557,69 @@ def write_report(suite_dir: Path, cfg: dict, status: dict, host: str, title: str
             L.append(f"- {mode}: gating {word} post-burn-in position RMSE ({_f(off['pos_rmse_3d_m'])} m off -> "
                      f"{_f(on['pos_rmse_3d_m'])} m on); recall {_f(on['outlier_recall'])}, clean-measurement false "
                      f"rejection rate {_f(on['false_rejection_rate'], 4)}.")
+    L.append("")
+
+    L.append("### E9 - degraded GNSS (viaduct / urban canyon stand-in)")
+    L.append("")
+    g = cfg["experiment"]["gnss_degradation"]
+    L.append(f"Inside [{g['interval_s'][0]:g}, {g['interval_s'][1]:g}) s the GNSS noise standard deviation is "
+             f"multiplied by {g['noise_scale']:g} and a smooth multipath-like bias peaking at {g['bias_m']} m is "
+             "added. The receiver keeps reporting its nominal covariance, so the filter is not told. The "
+             "'switch' policy uses one source at a time (GNSS while its innovations are consistent, LiDAR "
+             "otherwise) - an innovation-test version of the sensor switching in Wang et al. (2024). 'fuse' "
+             "uses both sources, each weighted by its covariance, behind the chi-square gate.")
+    L.append("")
+    L.append(exp_table([r["run_id"] for r in rows if r["experiment"] == "E9"],
+                       [("max err in degraded section [m]", lambda r: _f(r["max_pos_err_in_interval_m"])),
+                        ("RPE mean/max [m]", lambda r: f"{_f(r['rpe_mean_m'])}/{_f(r['rpe_max_m'])}"),
+                        ("time on LiDAR [s]", lambda r: _f(r["time_on_lidar_s"], 1))]))
+    L.append("")
+    for rid in ("E9_eskf15_gnss_degraded", "E9_eskf15_all_fuse_degraded", "E9_eskf15_all_switch_degraded"):
+        m = metrics(rid)
+        if not m or not m.get("analysis_intervals"):
+            continue
+        d = m["analysis_intervals"][0]
+        after = [k for k in d if k.startswith("after_")][0]
+        L.append(f"- {rid}: max error {_f(d['max_position_error_during_m'])} m inside the section, "
+                 f"{_f(d['end_of_outage']['position_error_m'])} m at its end, {_f(d[after]['position_error_m'])} m "
+                 f"{after.split('_')[1]} after; {d['rejections_in_10s_after']} of {d['updates_in_10s_after']} updates "
+                 "rejected in the 10 s after it.")
+        if rid == "E9_eskf15_gnss_degraded" and d["rejections_in_10s_after"] > 0.5 * max(d["updates_in_10s_after"], 1):
+            L.append("  **Gate lock-out (computed):** the gate rejected most degraded GNSS fixes, the filter coasted "
+                     "on the IMU, and after the section ended the now-correct GNSS disagreed so strongly with the "
+                     "drifted estimate that it kept being rejected. Gating protects against short outliers but "
+                     "can turn a long degradation into a much larger error when there is no second source.")
+    L.append("")
+
+    L.append("### E10 - fuse vs switch")
+    L.append("")
+    L.append(exp_table(["E2_eskf15_all", "E10_eskf15_all_switch", "E4_eskf15_all_gnss_dropout",
+                        "E10_eskf15_all_switch_gnss_dropout", "E9_eskf15_all_fuse_degraded",
+                        "E9_eskf15_all_switch_degraded"],
+                       [("policy", lambda r: r.get("fusion_policy") or "fuse"),
+                        ("RPE mean/max [m]", lambda r: f"{_f(r['rpe_mean_m'])}/{_f(r['rpe_max_m'])}"),
+                        ("time on LiDAR [s]", lambda r: _f(r["time_on_lidar_s"], 1)),
+                        ("switches", lambda r: _f(r["policy_switches"]))]))
+    L.append("")
+    pairs = [("nominal data", "E2_eskf15_all", "E10_eskf15_all_switch"),
+             ("GNSS dropout", "E4_eskf15_all_gnss_dropout", "E10_eskf15_all_switch_gnss_dropout"),
+             ("degraded GNSS", "E9_eskf15_all_fuse_degraded", "E9_eskf15_all_switch_degraded")]
+    compared, switch_better = 0, 0
+    for label, f_id, s_id in pairs:
+        f, sw_ = by.get(f_id), by.get(s_id)
+        if f and sw_ and f["pos_rmse_3d_m"] is not None and sw_["pos_rmse_3d_m"] is not None:
+            ratio = sw_["pos_rmse_3d_m"] / f["pos_rmse_3d_m"] if f["pos_rmse_3d_m"] else float("nan")
+            compared += 1
+            switch_better += sw_["pos_rmse_3d_m"] < f["pos_rmse_3d_m"]
+            L.append(f"- {label}: fused {_f(f['pos_rmse_3d_m'])} m vs switching {_f(sw_['pos_rmse_3d_m'])} m "
+                     f"position RMSE ({_f(ratio, 1)}x).")
+    L.append("")
+    if compared:
+        L.append(f"Observation (computed): switching had the lower RMSE in {switch_better} of {compared} "
+                 "comparisons. Switching discards the source it is not currently using, while the Kalman update "
+                 "already weights both sources by their covariances and the gate removes inconsistent fixes. "
+                 "These sensors are synthetic with independent errors; real localizers with correlated or "
+                 "drifting errors could change the balance, so this is a result for this setup, not a general law.")
     L.append("")
 
     m_ref = metrics("E2_eskf15_all")

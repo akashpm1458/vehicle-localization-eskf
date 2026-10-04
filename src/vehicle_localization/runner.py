@@ -96,7 +96,7 @@ def _build_events(ds: Dataset, cfg: EstimatorConfig, dropouts: list[Dropout]) ->
             continue
         s = ds.streams.get(name)
         c = {"available": 0, "removed_by_dropout": 0, "out_of_range": 0, "processed": 0,
-             "accepted": 0, "rejected": 0}
+             "accepted": 0, "rejected": 0, "skipped_by_policy": 0}
         counts[name] = c
         if s is None:
             for e in effects:
@@ -133,6 +133,74 @@ def _build_events(ds: Dataset, cfg: EstimatorConfig, dropouts: list[Dropout]) ->
     return t_all[srt], events, counts, effects
 
 
+class SwitchPolicy:
+    """One position source at a time (an innovation-based version of sensor switching).
+
+    GNSS is the primary source. Each GNSS measurement is first *judged* with its
+    normalized innovation squared (NIS, chi-square with 3 dof) against the current
+    filter state, without changing the state. GNSS is declared bad when one measurement
+    fails the judge test or when no GNSS has arrived for ``gnss_timeout_s``; LiDAR
+    positions are then used instead. GNSS becomes primary again after
+    ``recover_after`` consecutive measurements pass. While GNSS is primary, LiDAR
+    measurements are skipped; while LiDAR is primary, GNSS measurements are only judged.
+
+    This replaces the hand-tuned fuzzy rules of Wang et al. (2024) with a statistical
+    test, but keeps their key design choice: the sources are selected, not fused.
+    """
+
+    def __init__(self, cfg: EstimatorConfig, t0_ns: int):
+        from scipy.stats import chi2
+
+        self.threshold = float(chi2.ppf(cfg.switch_judge_probability, df=3))
+        self.recover_after = cfg.switch_recover_after
+        self.timeout_ns = int(round(cfg.switch_gnss_timeout_s * 1e9))
+        self.gnss_ok = True
+        self.streak = 0
+        self.last_gnss_ns = t0_ns
+        self.switches: list[dict] = []
+
+    def _set(self, ok: bool, t_ns: int, reason: str) -> None:
+        if ok != self.gnss_ok:
+            self.gnss_ok = ok
+            self.switches.append({"t_s": t_ns * 1e-9, "to": "gnss" if ok else "lidar", "reason": reason})
+        self.streak = 0
+
+    def judge_gnss(self, ekf, z, R, lever, t_ns: int) -> bool:
+        """Return True if this GNSS measurement should update the filter."""
+        H = ekf.measurement_jacobian(lever)
+        r = z - ekf.predict_measurement(lever)
+        S = H @ ekf.P @ H.T + R
+        nis = float(r @ np.linalg.solve(S, r))
+        self.last_gnss_ns = t_ns
+        if nis > self.threshold:
+            self._set(False, t_ns, f"GNSS NIS {nis:.1f} > {self.threshold:.2f}")
+            return False
+        if not self.gnss_ok:
+            self.streak += 1
+            if self.streak >= self.recover_after:
+                self._set(True, t_ns, f"{self.recover_after} consecutive consistent GNSS")
+        return self.gnss_ok
+
+    def use_lidar(self, t_ns: int) -> bool:
+        if self.gnss_ok and t_ns - self.last_gnss_ns > self.timeout_ns:
+            self._set(False, t_ns, "GNSS timeout")
+        return not self.gnss_ok
+
+    def summary(self, t0_ns: int, t_end_ns: int) -> dict:
+        on_lidar, since = 0.0, None
+        for sw in self.switches:
+            if sw["to"] == "lidar":
+                since = sw["t_s"]
+            elif since is not None:
+                on_lidar += sw["t_s"] - since
+                since = None
+        if since is not None:
+            on_lidar += t_end_ns * 1e-9 - since
+        return {"name": "switch", "judge_threshold": self.threshold, "recover_after": self.recover_after,
+                "switches": self.switches, "time_on_lidar_s": on_lidar,
+                "time_total_s": (t_end_ns - t0_ns) * 1e-9}
+
+
 def run_estimator(
     dataset: Dataset,
     config: EstimatorConfig,
@@ -163,6 +231,14 @@ def run_estimator(
     cov = np.empty((len(cov_rows), n, n))
     cov_slot = {r: j for j, r in enumerate(cov_rows)}
     innovations: list[dict] = []
+    policy_warnings: list[str] = []
+    switch = None
+    if config.fusion_policy == "switch":
+        if {"gnss", "lidar"} <= set(config.sensors):
+            switch = SwitchPolicy(config, int(imu_t[0]))
+        else:
+            policy_warnings.append(f"fusion_policy 'switch' needs both GNSS and LiDAR; mode {config.mode} "
+                                   "uses fewer, so every available measurement is fused")
 
     def log(row: int) -> None:
         log_p[row], log_v[row], log_q[row] = ekf.p, ekf.v, ekf.q
@@ -176,6 +252,12 @@ def run_estimator(
         t, name, i = event
         s = dataset.streams[name]
         R = s.R[i] * config.covariance_scale.get(name, 1.0)
+        if switch is not None:
+            use = (switch.judge_gnss(ekf, s.z[i], R, config.lever_arms[name], t) if name == "gnss"
+                   else switch.use_lidar(t))
+            if not use:
+                counts[name]["skipped_by_policy"] += 1
+                return
         rec = ekf.update_position(s.z[i], R, config.lever_arms[name], name)
         rec["t_ns"] = t
         rec["index"] = i
@@ -229,7 +311,9 @@ def run_estimator(
         "discretization": config.discretization,
         "dropouts": dropout_effects,
         "warnings": [f"dropout {e['stream']} [{e['start_s']:g}, {e['end_s']:g}) s removed no measurements: "
-                     f"{e['note']}" for e in dropout_effects if e["removed"] == 0],
+                     f"{e['note']}" for e in dropout_effects if e["removed"] == 0] + policy_warnings,
+        "fusion_policy": (switch.summary(int(imu_t[0]), int(imu_t[-1])) if switch is not None
+                          else {"name": "fuse"}),
         "final_quaternion_norm_error": float(abs(np.linalg.norm(ekf.q) - 1.0)),
         "max_logged_quaternion_norm_error": float(np.max(np.abs(np.linalg.norm(log_q, axis=1) - 1.0))),
     }

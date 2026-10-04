@@ -179,6 +179,27 @@ measurement (see `tests/test_propagation_and_scheduler.py`).
 
 ---
 
+### Degraded GNSS, and fusing vs switching (E9, E10)
+
+Real GNSS rarely just switches off. Under a viaduct it gets **worse**, and the receiver often
+doesn't know. E9 makes GNSS 5× noisier and adds a drifting bias for 20 s:
+
+- **GNSS-only filter:** the gate correctly rejects the bad fixes, so the filter coasts on the IMU
+  and drifts. When GNSS recovers, the good fixes disagree so much with the drifted estimate that
+  they are rejected too ("gate lock-out"), and the error peaks at 93 m. Gating protects against
+  short outliers, but with no second source it can make a long degradation worse.
+- **GNSS + LiDAR fused:** the gate drops the bad GNSS while LiDAR keeps correcting. The error stays
+  below 0.2 m.
+
+E10 tests the design choice from Wang et al. (2024): use **one** source at a time instead of
+fusing both. The switching filter uses GNSS while its NIS passes a chi-square test, and LiDAR
+otherwise. It handles the bad section, but it ignores LiDAR the rest of the time, so its RMSE is
+0.54–0.66 m against 0.096 m for fusing. With two independent sources, the Kalman filter already
+weights each one by its uncertainty, so throwing one away costs accuracy.
+
+The per-window **relative position error** (RPE) measures drift within each 10 s window,
+ignoring any constant offset. It is the metric Wang et al. report per 150 s.
+
 ## 9. What the synthetic data leaves out
 
 - GNSS multipath and outages caused by buildings or trees.

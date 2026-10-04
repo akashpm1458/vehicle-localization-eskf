@@ -56,6 +56,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_imu_gap_s": 0.05,
         "covariance_check_every": 100,
         "full_covariance_log_every": 10,
+        # How GNSS and LiDAR positions are combined when a mode uses both:
+        #   "fuse"   - every measurement updates the filter, weighted by its covariance (default)
+        #   "switch" - one source at a time: GNSS while it looks consistent, LiDAR otherwise
+        #              (an innovation-based version of the switching idea in Wang et al. 2024)
+        "fusion_policy": "fuse",
+        "switching": {"judge_probability": 0.9973, "recover_after": 10, "gnss_timeout_s": 0.5},
     },
     "initialization": {
         "source": "generated_perturbed_truth",  # or "exact_truth" for noise-free fixtures
@@ -77,11 +83,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "gnss_covariance_scales": [0.1, 1.0, 10.0],
         "lidar_wrong_lever_arm_m": [0.7, 0.1, 1.2],
+        # E9: a "viaduct" section where GNSS degrades without the receiver reporting it:
+        # noise std multiplied by noise_scale plus a smooth multipath bias peaking at bias_m.
+        "gnss_degradation": {"interval_s": [40.0, 60.0], "noise_scale": 5.0, "bias_m": [4.0, -3.0, 1.5]},
         "verification_seeds": [7, 23, 42],
     },
     "report": {
         "burn_in_s": 10.0,
         "dpi": 130,
+        "relative_window_s": 10.0,
         "output": "results/suite",
     },
 }
@@ -217,6 +227,14 @@ def validate_config(cfg: dict) -> None:
     if isinstance(est["max_substep_s"], (int, float)) and est["max_substep_s"] > 0.01 + 1e-12:
         errors.append("estimator.max_substep_s must be at most 0.01 s")
     _positive(errors, "estimator.max_imu_gap_s", est["max_imu_gap_s"])
+    if est["fusion_policy"] not in ("fuse", "switch"):
+        errors.append("estimator.fusion_policy must be 'fuse' or 'switch'")
+    sw = est["switching"]
+    if not isinstance(sw["judge_probability"], (int, float)) or not 0.0 < sw["judge_probability"] < 1.0:
+        errors.append("estimator.switching.judge_probability must be in (0, 1)")
+    if isinstance(sw["recover_after"], bool) or not isinstance(sw["recover_after"], int) or sw["recover_after"] < 1:
+        errors.append("estimator.switching.recover_after must be a positive integer")
+    _positive(errors, "estimator.switching.gnss_timeout_s", sw["gnss_timeout_s"])
     for key in ("covariance_check_every", "full_covariance_log_every"):
         if not isinstance(est[key], int) or est[key] < 1:
             errors.append(f"estimator.{key} must be a positive integer")
@@ -239,9 +257,17 @@ def validate_config(cfg: dict) -> None:
     for s in exp["gnss_covariance_scales"]:
         _positive(errors, "experiment.gnss_covariance_scales[]", s)
     _vec3(errors, "experiment.lidar_wrong_lever_arm_m", exp["lidar_wrong_lever_arm_m"])
+    deg = exp["gnss_degradation"]
+    di = deg["interval_s"]
+    if not (isinstance(di, (list, tuple)) and len(di) == 2 and 0 <= di[0] < di[1]):
+        errors.append("experiment.gnss_degradation.interval_s must be [start, end) with 0 <= start < end")
+    if not isinstance(deg["noise_scale"], (int, float)) or deg["noise_scale"] < 1:
+        errors.append("experiment.gnss_degradation.noise_scale must be >= 1")
+    _vec3(errors, "experiment.gnss_degradation.bias_m", deg["bias_m"])
 
     _nonnegative(errors, "report.burn_in_s", rep["burn_in_s"])
     _positive(errors, "report.dpi", rep["dpi"])
+    _positive(errors, "report.relative_window_s", rep["relative_window_s"])
 
     if errors:
         raise ConfigError("invalid configuration:\n  - " + "\n  - ".join(errors))

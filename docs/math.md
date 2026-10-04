@@ -273,7 +273,7 @@ Code: `eskf.ErrorStateEKF.update_position`.
 
 ```
 NIS = rᵀ S⁻¹ r
-threshold = chi2.ppf(0.9973, df=3) ≈ 14.16          (not 9)
+threshold = chi2.ppf(p, df=3)      p = estimator.gating.probability (default 0.9973 → 14.16; not 9)
 ```
 
 - NIS is computed and logged **before** the state changes, for every measurement, including
@@ -318,7 +318,7 @@ Code: `runner.run_estimator`.
 | Position RMSE | `√( (1/N) Σ |p_true − p̂|² )`; horizontal uses `x, y` only |
 | Attitude error | `δθ = Log(R̂ᵀ R_true)` (same coordinates as `P_θθ`); angle `|δθ|`. Quaternion components are never subtracted. |
 | Coverage | Fraction of samples with `|error_i| ≤ 3√P_ii`. A diagnostic only. |
-| Mean NIS | Computed over **pre-gate** innovations. About 3 for a consistent filter; not a required equality for one run. |
+| Mean NIS | Computed over **pre-gate** innovations. About 3 for a consistent filter; not a required equality for one run. A high value shows the innovations exceed the predicted covariance `S`. Possible causes include measurement or process noise set too small, unmodelled bias or calibration error, timing errors, outliers or divergence; NIS alone doesn't single out one. |
 
 Code: `evaluation.py`.
 

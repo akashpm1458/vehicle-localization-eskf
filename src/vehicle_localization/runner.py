@@ -17,6 +17,7 @@ by subtracting timestamps.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,7 +40,27 @@ class Dropout:
 
     @staticmethod
     def from_seconds(stream: str, start_s: float, end_s: float) -> "Dropout":
-        return Dropout(stream, int(round(start_s * 1e9)), int(round(end_s * 1e9)))
+        """Build a validated dropout. Raises ValueError for an unknown stream, a non-finite
+        time or an empty/reversed interval (which would otherwise silently remove nothing)."""
+        if stream not in STREAM_ORDER:
+            raise ValueError(f"dropout stream must be one of {list(STREAM_ORDER)}, got {stream!r}")
+        try:
+            a, b = float(start_s), float(end_s)
+        except (TypeError, ValueError):
+            raise ValueError(f"dropout times must be numbers, got {start_s!r}, {end_s!r}") from None
+        if not (math.isfinite(a) and math.isfinite(b)):
+            raise ValueError(f"dropout times must be finite, got [{start_s}, {end_s})")
+        if not a < b:
+            raise ValueError(f"dropout interval must have start < end, got [{a:g}, {b:g})")
+        return Dropout(stream, int(round(a * 1e9)), int(round(b * 1e9)))
+
+    @staticmethod
+    def parse(spec: str) -> "Dropout":
+        """Parse 'STREAM:START_S:END_S' (half-open interval, seconds from dataset start)."""
+        parts = spec.split(":")
+        if len(parts) != 3:
+            raise ValueError(f"dropout must look like STREAM:START_S:END_S (e.g. gnss:40:60), got {spec!r}")
+        return Dropout.from_seconds(parts[0].strip(), parts[1], parts[2])
 
 
 @dataclass
@@ -60,10 +81,16 @@ class RunResult:
     info: dict = field(default_factory=dict)
 
 
-def _build_events(ds: Dataset, cfg: EstimatorConfig, dropouts: list[Dropout]) -> tuple[np.ndarray, list, dict]:
+def _build_events(ds: Dataset, cfg: EstimatorConfig, dropouts: list[Dropout]) -> tuple[np.ndarray, list, dict,
+                                                                                     list[dict]]:
     t0, t_end = int(ds.imu_t_ns[0]), int(ds.imu_t_ns[-1])
     times, order, idx, names = [], [], [], []
     counts: dict = {}
+    effects = [{"stream": d.stream, "start_s": d.start_ns * 1e-9, "end_s": d.end_ns * 1e-9, "removed": 0,
+                "note": ""} for d in dropouts]
+    for e in effects:
+        if e["stream"] not in cfg.sensors:
+            e["note"] = f"stream '{e['stream']}' is not used by mode {cfg.mode}"
     for name in STREAM_ORDER:
         if name not in cfg.sensors:
             continue
@@ -72,14 +99,18 @@ def _build_events(ds: Dataset, cfg: EstimatorConfig, dropouts: list[Dropout]) ->
              "accepted": 0, "rejected": 0}
         counts[name] = c
         if s is None:
+            for e in effects:
+                if e["stream"] == name:
+                    e["note"] = f"stream '{name}' is absent from this dataset"
             continue
         t = s.t_ns
         c["available"] = int(t.size)
         keep = np.ones(t.size, dtype=bool)
-        for d in dropouts:
+        for d, e in zip(dropouts, effects):
             if d.stream == name:
                 drop = (t >= d.start_ns) & (t < d.end_ns)
-                c["removed_by_dropout"] += int(np.sum(drop & keep))
+                e["removed"] = int(np.sum(drop & keep))
+                c["removed_by_dropout"] += e["removed"]
                 keep &= ~drop
         oor = (t < t0) | (t > t_end)
         c["out_of_range"] = int(np.sum(oor & keep))
@@ -89,14 +120,17 @@ def _build_events(ds: Dataset, cfg: EstimatorConfig, dropouts: list[Dropout]) ->
         order.append(np.full(sel.size, STREAM_ORDER.index(name)))
         idx.append(sel)
         names.append(name)
+    for e in effects:
+        if e["removed"] == 0 and not e["note"]:
+            e["note"] = "no measurements fall in this interval"
     if not times:
-        return np.zeros(0, dtype=np.int64), [], counts
+        return np.zeros(0, dtype=np.int64), [], counts, effects
     t_all = np.concatenate(times)
     o_all = np.concatenate(order)
     i_all = np.concatenate(idx)
     srt = np.lexsort((i_all, o_all, t_all))  # by time, then GNSS before LiDAR, then index
     events = [(int(t_all[k]), STREAM_ORDER[o_all[k]], int(i_all[k])) for k in srt]
-    return t_all[srt], events, counts
+    return t_all[srt], events, counts, effects
 
 
 def run_estimator(
@@ -112,7 +146,7 @@ def run_estimator(
     imu_t = dataset.imu_t_ns
     n_rows = imu_t.size
     n = config.n_states
-    ev_t, events, counts = _build_events(dataset, config, dropouts)
+    ev_t, events, counts, dropout_effects = _build_events(dataset, config, dropouts)
     n_ev = len(events)
 
     log_p = np.empty((n_rows, 3))
@@ -193,7 +227,9 @@ def run_estimator(
         "imu_intervals_processed": n_rows - 1,
         "covariance_checks": ekf.cov_stats,
         "discretization": config.discretization,
-        "dropouts": [d.__dict__ for d in dropouts],
+        "dropouts": dropout_effects,
+        "warnings": [f"dropout {e['stream']} [{e['start_s']:g}, {e['end_s']:g}) s removed no measurements: "
+                     f"{e['note']}" for e in dropout_effects if e["removed"] == 0],
         "final_quaternion_norm_error": float(abs(np.linalg.norm(ekf.q) - 1.0)),
         "max_logged_quaternion_norm_error": float(np.max(np.abs(np.linalg.norm(log_q, axis=1) - 1.0))),
     }

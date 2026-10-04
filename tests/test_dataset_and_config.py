@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from vehicle_localization.config import DEFAULT_CONFIG, ConfigError, load_config
-from vehicle_localization.dataset import load_dataset, validate_dataset
+from vehicle_localization.dataset import load_dataset, load_ground_truth, validate_dataset
 from vehicle_localization.sensors import derive_outlier_dataset, generate_dataset
 
 from .conftest import make_cfg
@@ -104,6 +104,13 @@ def test_validator_rejects_bad_data(smoke_dataset, tmp_path, case):
         (d / "imu.csv").unlink()
     res = validate_dataset(d)
     assert not res.ok, case
+    if case == "wxyz_truth":
+        # Truth is evaluation-only: a bad truth file must not block loading estimator inputs.
+        assert all(e.startswith("[evaluation]") for e in res.errors)
+        load_dataset(d)
+        with pytest.raises(ValueError, match="wxyz"):
+            load_ground_truth(d)
+        return
     with pytest.raises(ValueError):
         load_dataset(d)
 

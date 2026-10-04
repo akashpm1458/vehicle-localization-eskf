@@ -48,6 +48,8 @@ def cmd_generate(args) -> int:
     plot_ground_truth(load_ground_truth(out), ds.streams, out / "ground_truth_plot.png", cfg["report"]["dpi"])
     print(f"Generated dataset in {manifest.path}: {manifest.n_imu_rows} IMU rows, "
           f"measurements {manifest.counts}, seed {manifest.seed}, {manifest.duration_s} s")
+    for w in ds.warnings:
+        print(f"  warning: {w}")
     return 0
 
 
@@ -66,38 +68,53 @@ def _host() -> str:
 
 
 def cmd_run(args) -> int:
-    from .config import load_config
-    from .dataset import load_ground_truth
+    from .config import MODES, load_config
+    from .dataset import DatasetError, load_ground_truth
     from .evaluation import error_series
     from .experiments import execute_run
     from .plotting import plot_axis_errors_with_bounds, plot_nis, plot_trajectory_xy
-    from .runner import load_run
+    from .runner import Dropout, load_run
 
     cfg = load_config(args.config)
+    # The config's estimator.mode applies unless --mode is given explicitly.
+    mode = args.mode or cfg["estimator"]["mode"]
+    if mode not in MODES:
+        raise ValueError(f"unknown mode {mode!r}; choose one of {sorted(MODES)}")
+    # Validate every dropout request before any data is read or written.
+    drops = [Dropout.parse(d) for d in args.dropout or []]
+    dropouts = [(d.stream, d.start_ns * 1e-9, d.end_ns * 1e-9) for d in drops]
     overrides: dict = {}
     if args.gating is not None:
         overrides["gating"] = {"enabled": args.gating == "on"}
     if args.discretization:
         overrides["discretization"] = args.discretization
     out = resolve_output(args.output, args.overwrite)
-    dropouts = [(s, float(a), float(b)) for s, a, b in (d.split(":") for d in args.dropout or [])]
-    res = execute_run(Path(args.data), cfg, args.mode, out, estimator_overrides=overrides, dropouts=dropouts,
-                      meta={"command": "run", "host": _host()})
+    print(f"mode: {mode} ({'--mode' if args.mode else 'estimator.mode in ' + str(args.config)})")
+    res = execute_run(Path(args.data), cfg, mode, out, estimator_overrides=overrides, dropouts=dropouts,
+                      meta={"command": "run", "mode_source": "cli" if args.mode else "config", "host": _host()})
     m = res["metrics"]
+    for d in m["dropouts_applied"]:
+        print(f"  dropout {d['stream']} [{d['start_s']:g}, {d['end_s']:g}) s: removed {d['removed']} measurement(s)")
+    for w in m["warnings"]:
+        print(f"  warning: {w}")
     run = load_run(out)
-    truth = load_ground_truth(args.data)
+    try:
+        truth = load_ground_truth(args.data)
+    except DatasetError:
+        truth = None  # already reported in the warnings above
     dpi = cfg["report"]["dpi"]
-    plot_nis(run.innovations, out / "nis.png", f"{args.mode}: pre-gate NIS", dpi=dpi)
+    gate_p = overrides.get("gating", {}).get("probability", cfg["estimator"]["gating"]["probability"])
+    plot_nis(run.innovations, out / "nis.png", f"{mode}: pre-gate NIS", dpi=dpi, gate_probability=gate_p)
     if truth is not None:
         es = error_series(run, truth)
-        plot_trajectory_xy(truth, {args.mode: run}, out / "trajectory_xy.png", f"{args.mode}", dpi=dpi)
-        plot_axis_errors_with_bounds(es, out / "position_error_bounds.png", f"{args.mode}: position error", dpi=dpi)
+        plot_trajectory_xy(truth, {mode: run}, out / "trajectory_xy.png", f"{mode}", dpi=dpi)
+        plot_axis_errors_with_bounds(es, out / "position_error_bounds.png", f"{mode}: position error", dpi=dpi)
         a = m["after_burn_in"]
-        print(f"{args.mode}: position RMSE {a['position_rmse_3d_m']:.3f} m (after {m['burn_in_s']:g} s burn-in), "
+        print(f"{mode}: position RMSE {a['position_rmse_3d_m']:.3f} m (after {m['burn_in_s']:g} s burn-in), "
               f"whole run {m['whole_run']['position_rmse_3d_m']:.3f} m; velocity RMSE {a['velocity_rmse_3d_mps']:.3f} "
               f"m/s; attitude RMSE {a['attitude_rmse_deg']:.3f} deg")
     else:
-        print(f"{args.mode}: no ground truth available; accuracy metrics disabled, innovations logged")
+        print(f"{mode}: no usable ground truth; accuracy metrics disabled, innovations logged")
     for s, st in m["innovations"].items():
         print(f"  {s}: {st['accepted']} accepted, {st['rejected']} rejected, mean pre-gate NIS {st['nis_pre_gate_mean']:.2f}")
     print(f"  wall time {m['runtime']['wall_time_s']:.2f} s; outputs in {out}")
@@ -190,11 +207,15 @@ def cmd_monte_carlo(args) -> int:
 
     cfg = load_config(args.config)
     out = resolve_output(args.output, args.overwrite)
-    s = run_monte_carlo(cfg, out, args.runs, mode=args.mode)
+    s = run_monte_carlo(cfg, out, args.runs, mode=args.mode or cfg["estimator"]["mode"])
+
+    def nis(v):
+        return "n/a (sensor not used)" if v is None else f"{v:.2f}"
+
     print(f"{s['runs']} runs of {s['mode']}: position RMSE mean {s['pos_rmse_3d_m']['mean']:.3f} m, "
           f"std {s['pos_rmse_3d_m']['std']:.4f} m, max {s['pos_rmse_3d_m']['max']:.3f} m; "
-          f"fraction below 1 m: {s['fraction_below_1m']:.2f}; mean GNSS NIS {s['mean_gnss_nis']:.2f}, "
-          f"mean LiDAR NIS {s['mean_lidar_nis']:.2f}")
+          f"fraction below 1 m: {s['fraction_below_1m']:.2f}; mean GNSS NIS {nis(s['mean_gnss_nis'])}, "
+          f"mean LiDAR NIS {nis(s['mean_lidar_nis'])}")
     print(f"outputs in {out}")
     return 0
 
@@ -223,7 +244,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("run", help="run one estimator on a dataset")
     p.add_argument("--data", required=True)
-    p.add_argument("--mode", choices=sorted(MODES), default="eskf15_all")
+    p.add_argument("--mode", choices=sorted(MODES), default=None,
+                   help="estimator mode (default: estimator.mode from --config)")
     p.add_argument("--output", default="results/baseline")
     p.add_argument("--config", default="configs/default.yaml")
     p.add_argument("--gating", choices=["on", "off"], default=None)
@@ -247,8 +269,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("monte-carlo", help="OPTIONAL statistical study over many seeds (sequential)")
     p.add_argument("--config", default="configs/default.yaml")
-    p.add_argument("--runs", type=int, default=20)
-    p.add_argument("--mode", choices=sorted(MODES), default="eskf15_all")
+    p.add_argument("--runs", type=int, default=20, help="number of seeds (positive integer)")
+    p.add_argument("--mode", choices=sorted(MODES), default=None,
+                   help="estimator mode (default: estimator.mode from --config)")
     p.add_argument("--output", default="results/monte_carlo")
     p.add_argument("--overwrite", action="store_true")
     p.set_defaults(func=cmd_monte_carlo)

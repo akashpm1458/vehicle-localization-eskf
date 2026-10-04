@@ -309,14 +309,14 @@
   "failed_runs": [],
   "all_checks_passed": true,
   "all_targets_met": true,
-  "wall_time_s": 49.40087240999992,
-  "process_peak_memory_mb": 143.52734375,
-  "output_size_mb": 125.16188430786133,
+  "wall_time_s": 47.52952432200004,
+  "process_peak_memory_mb": 143.1953125,
+  "output_size_mb": 125.16626453399658,
   "pytest": {
     "ran": true,
     "passed": true,
     "returncode": 0,
-    "summary": "103 passed in 41.26s"
+    "summary": "140 passed in 48.73s"
   },
   "per_seed": [
     {

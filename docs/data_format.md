@@ -23,6 +23,11 @@ python -m vehicle_localization validate --data <folder>
 | `ground_truth.csv` | **evaluator only** | no (without it, accuracy metrics are turned off) |
 | `truth_metadata.json` | **evaluator only** | no |
 
+Inputs and truth are validated separately. `load_dataset` (used for estimation) never opens
+`ground_truth.csv` or `truth_metadata.json`, so a missing or malformed truth file can't block or
+change estimation. A malformed truth file only turns off the accuracy metrics, with a warning.
+`validate` checks both and labels truth problems `[evaluation]`.
+
 General rules:
 
 - UTF-8 text, comma-separated, with exactly the header shown.
@@ -86,6 +91,9 @@ origin. The estimator config can scale the reported covariance (`estimator.covar
 
 Rules:
 
+- A header-only file (no rows) is valid. The validator warns that the stream contains no
+  measurements, and modes that use it get no aiding from it. The generator writes such a file when
+  a sensor's first measurement time is after the end of the dataset.
 - Two different sensors may share a timestamp; GNSS is applied first, then LiDAR.
 - Within one stream, duplicate timestamps are rejected.
 - An unsorted stream is sorted by measurement time, which assumes no delivery delay; the validator
@@ -109,7 +117,8 @@ plus noise), not real scan-matching output.
   "gyro_bias_radps": [0.0, 0.0, 0.0],
   "covariance": {
     "error_state_order": ["px","py","pz","vx","vy","vz","thx","thy","thz","bax","bay","baz","bgx","bgy","bgz"],
-    "units": "m, m/s, rad (body-local), m/s^2, rad/s",
+    "units": {"position": "m", "velocity": "m/s", "attitude": "rad (body-local, right-multiplicative)",
+              "accel_bias": "m/s^2", "gyro_bias": "rad/s"},
     "matrix": [[1.0, 0, "..."], "..."]
   },
   "provenance": {"method": "ground_truth_assisted", "description": "..."}
@@ -120,6 +129,9 @@ Rules:
 
 - The quaternion must say `"order": "xyzw"`. A bare 4-vector is rejected as ambiguous.
 - `t_ns` must equal the first IMU timestamp.
+- `covariance.error_state_order` and `covariance.units` must be **exactly** the values shown. They
+  are checked before the matrix is read, so a matrix in another order, in degrees, or for a
+  different attitude-error definition is rejected instead of being silently misread.
 - The covariance is 15×15 for the error state above (the attitude block is the body-local rotation
   error in rad²). It must be symmetric and positive definite. The 9-state filter uses its top-left
   9×9 block.
@@ -137,15 +149,54 @@ These keys are required:
 - `schema_version`
 - `frames`
 - `units`
-- `quaternion_order` (must be `"xyzw"`)
+- `quaternion_order`
 - `timing`
 - `seed`
 - `duration_s`
 - `sensors` (including each sensor's reference point)
 - `generator_version`
 
+### Declared conventions must match exactly
+
+`frames`, `units` and `timing` are objects whose machine-readable keys must equal the conventions
+this code implements. Any other value (another frame, another unit, another timing model, or an
+unknown schema version) is **rejected**. Convert the data first instead of having it silently
+misinterpreted.
+
+| Key | Required value |
+|---|---|
+| `schema_version` | `"1.0"` |
+| `quaternion_order` | `"xyzw"` |
+| `frames.world` | `"right_handed_z_up"` |
+| `frames.body` | `"x_forward_y_left_z_up"` |
+| `frames.rotation` | `"R_WB_body_to_world"` |
+| `units.time` | `"ns"` |
+| `units.length` | `"m"` |
+| `units.angle` | `"rad"` |
+| `units.specific_force` | `"m/s^2"` |
+| `units.angular_rate` | `"rad/s"` |
+| `units.covariance` | `"m^2"` |
+| `timing.imu` | `"interval_held_forward_last_row_end_marker"` |
+| `timing.external` | `"measurement_time_no_delivery_delay"` |
+
+Other keys, such as a `description` object, are allowed and ignored.
+
+Example:
+
+```json
+"frames": {"world": "right_handed_z_up", "body": "x_forward_y_left_z_up",
+           "rotation": "R_WB_body_to_world", "description": {"world": "local ENU around ..."}},
+"units": {"time": "ns", "length": "m", "angle": "rad", "specific_force": "m/s^2",
+          "angular_rate": "rad/s", "covariance": "m^2"},
+"timing": {"imu": "interval_held_forward_last_row_end_marker",
+           "external": "measurement_time_no_delivery_delay"}
+```
+
 Metadata never contains lever-arm values. The filter's lever arms come only from the estimator
 config, so a calibration experiment can't leak the true value.
+
+Datasets generated before this rule existed used free-text values and are now rejected. Regenerate
+them with `python -m vehicle_localization generate ...`.
 
 ---
 
@@ -155,8 +206,13 @@ config, so a calibration experiment can't leak the true value.
 t_ns,px,py,pz,vx,vy,vz,qx,qy,qz,qw,bax,bay,baz,bgx,bgy,bgz
 ```
 
-This is the body-origin truth at the IMU timestamps. A header with `qw` before `qx` is rejected,
-with a hint that it looks like `wxyz` order.
+This is the body-origin truth at the IMU timestamps. Truth is checked only on the evaluation side:
+
+- The header must match exactly. A header with `qw` before `qx` is rejected, with a hint that it
+  looks like `wxyz` order.
+- Values must be finite and quaternions unit length.
+- Timestamps must be **strictly increasing**. Duplicate or decreasing timestamps are rejected
+  before any interpolation.
 
 ## 8. `truth_metadata.json` (evaluation only)
 
@@ -175,10 +231,15 @@ injected outliers).
 | Non-integer `t_ns` | rejected |
 | Covariance that is not positive definite | rejected |
 | Ambiguous or `wxyz` quaternion order | rejected |
+| Unsupported `schema_version`, frame, unit or timing convention | rejected |
+| Prior covariance with a different `error_state_order` or `units` | rejected |
 | Negative IMU time steps | rejected (unless `--normalize-imu`) |
 | Duplicate IMU timestamps | rejected |
+| Header-only `imu.csv` (fewer than 2 rows) | rejected |
 | Missing metadata keys | rejected |
 | Prior that doesn't match the IMU start | rejected |
+| Header-only `gnss.csv` or `lidar_position.csv` | allowed, with a warning (no aiding from that stream) |
 | Same timestamp across different sensors | allowed |
 | Measurements outside IMU coverage | warning, then skipped |
 | Missing `ground_truth.csv` | allowed (accuracy metrics off) |
+| Malformed `ground_truth.csv`, or duplicate/decreasing truth timestamps | `[evaluation]` error; estimation still runs, accuracy metrics off |

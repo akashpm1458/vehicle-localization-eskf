@@ -19,7 +19,7 @@ Numbers quoted here come from the seed-7 demo run on a remote cloud machine. You
 | **Error state** | The small difference between the truth and the nominal state: `δp, δv, δθ, δb_a, δb_g` (15 numbers). |
 | **Covariance `P`** | How uncertain the filter believes each error-state component is, and how the components are correlated. |
 | **Innovation** | The measurement minus what the filter predicted it would be: `r = z − ẑ`. |
-| **NIS** | Normalized innovation squared, `rᵀ S⁻¹ r`. About 3 on average for a 3-D measurement if the filter's uncertainty is right. |
+| **NIS** | Normalized innovation squared, `rᵀ S⁻¹ r`. About 3 on average for a 3-D measurement when the filter's models and uncertainties match the data. A much larger value signals an inconsistency (too-small measurement or process noise, unmodelled bias or calibration, timing, outliers) but doesn't say which. |
 | **Jacobian** | The matrix of first derivatives (`A`, `H`, `J_r`) that linearizes a nonlinear function around the current estimate. |
 | **Lever arm** | The fixed vector, in the body frame, from the body origin to a sensor's reference point. |
 | **Observability** | Whether the measurements carry enough information to determine a state component. Some only become observable when the vehicle turns or accelerates. |

@@ -17,10 +17,18 @@ Create `imu.csv`, `gnss.csv`, an optional `lidar_position.csv`, `initial_prior.j
 - **IMU:** specific force in m/s² and angular rate in rad/s, in the body frame (`x` forward,
   `y` left, `z` up), at the body origin. Add one final row to close the last interval.
 - **Positions:** metres in one metric world frame with `z` up, plus their 3×3 covariance in m².
+- **Metadata:** `metadata.json` must declare the supported conventions exactly (frames, units,
+  timing and schema version; see [data_format.md §6](data_format.md#6-metadatajson)). If your data
+  uses another convention, convert it. Relabelling it is not enough: the validator rejects anything
+  else so a mismatch can't be silently misread.
+- An empty position file (header only) is accepted with a warning. That stream then provides no
+  aiding.
 
 ### 2. Write the prior
 
 Write `initial_prior.json` with a covariance that honestly reflects how well you know the start.
+The covariance must keep the documented `error_state_order` and per-block `units`
+(attitude in radians, as a body-local right-multiplicative error); other layouts are rejected.
 Record in `provenance` how it was obtained (for example: "averaged GNSS over the first 5 s while
 stationary; heading from a surveyed alignment").
 
@@ -41,7 +49,7 @@ python -m vehicle_localization run --data path/to/recording --mode eskf15_all --
 
 ### 5. Without ground truth
 
-If `ground_truth.csv` is absent:
+If `ground_truth.csv` is absent or malformed (including duplicate or decreasing timestamps):
 
 - Accuracy metrics are turned off.
 - Estimation, the innovation logs (`innovations.csv`), NIS statistics and timing checks all still

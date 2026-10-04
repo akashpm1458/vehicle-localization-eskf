@@ -40,8 +40,8 @@ FIGURES = [
     ("fig03b_attitude_axes_bounds.png", "Per-axis local attitude error of eskf15_all with +/-3 sigma bounds (E2)"),
     ("fig04_velocity_attitude_error.png", "Velocity and attitude error: 9-state vs 15-state on biased data (E2)"),
     ("fig05_biases.png", "Estimated vs true IMU biases, eskf15_all (E2)"),
-    ("fig06_nis_outliers.png", "Pre-gate NIS per sensor with gate threshold; rejected and injected outliers "
-                               "marked (E8, eskf15_all, gating on)"),
+    ("fig06_nis_outliers.png", "Pre-gate NIS per sensor with the configured chi-square gate; rejected and "
+                               "injected outliers marked (E8, eskf15_all, gating on)"),
     ("fig07_calibration_and_dropout.png", "Left: lever-arm calibration error (E7), signed position error in "
                                           "the body frame. Right: total-dropout close-up (E5) with 3-sigma bound"),
     ("fig08_summary.png", "Compact experiment summary (metric values with units)"),
@@ -103,7 +103,8 @@ def make_suite_figures(suite_dir: Path, cfg: dict, seed: int) -> list[Path]:
         o = truth["biased_outliers"].metadata["corruptions"]["outliers"]
         out.append(plot_nis(run("E8_eskf15_all_gating_on").innovations, fig_dir / FIGURES[6][0],
                             "E8: eskf15_all with injected GNSS outliers, gating on",
-                            outlier_t_ns=(o["stream"], np.asarray(o["t_ns"])), dpi=dpi))
+                            outlier_t_ns=(o["stream"], np.asarray(o["t_ns"])), dpi=dpi,
+                            gate_probability=cfg["estimator"]["gating"]["probability"]))
     if have("E7_eskf15_all_lidar_arm_correct", "E7_eskf15_all_lidar_arm_wrong", "E5_eskf15_all_total_dropout"):
         out.append(_calibration_dropout_figure(es("E7_eskf15_all_lidar_arm_correct"),
                                                es("E7_eskf15_all_lidar_arm_wrong"),
@@ -363,7 +364,9 @@ def write_report(suite_dir: Path, cfg: dict, status: dict, host: str, title: str
     L.append(f"## 4. Results (seed {seed})")
     L.append("")
     L.append(f"\"pos RMSE\" is computed after a {burn:g} s burn-in; \"whole\" includes the initialization period. "
-             "NIS columns are mean **pre-gate** NIS (3 is the expectation for a consistent filter; diagnostic only).")
+             "NIS columns are mean **pre-gate** NIS. About 3 is expected when the filter's models and uncertainties "
+             "are consistent with the data; a departure signals some inconsistency (covariance, process model, "
+             "calibration, timing or outliers) without identifying which. Diagnostic only.")
     L.append("")
     L.append("### E1 - zero-bias noisy motion")
     L.append("")
@@ -451,11 +454,16 @@ def write_report(suite_dir: Path, cfg: dict, status: dict, host: str, title: str
     lock = [r for r in rows if r["experiment"] == "E6" and r["gnss_rejected"] > 0.5 * (r["gnss_accepted"] +
                                                                                        r["gnss_rejected"])]
     L.append("")
-    L.append("Interpretation: NIS above 3 means the filter is over-confident (its assumed GNSS covariance is too "
-             "small); below 3 means under-confident.")
+    L.append("Interpretation: a mean pre-gate NIS well above 3 means the innovations are larger than the filter's "
+             "own predicted innovation covariance S; well below 3 means they are smaller. An elevated NIS is a "
+             "symptom, not a diagnosis: it can come from an assumed measurement covariance that is too small, but "
+             "equally from process noise that is too small, unmodelled biases or calibration errors, timing "
+             "errors, outliers or a diverging state. In E6 the measurements and every other setting are identical "
+             "across runs and only the assumed GNSS covariance scale changes, so the *differences* between these "
+             "runs can be attributed to that scale; the NIS value alone would not prove it.")
     for r in lock:
-        L.append(f"**Gate lock-out (computed):** in {r['run_id']} the over-confident filter rejected most GNSS "
-                 "measurements as outliers. "
+        L.append(f"**Gate lock-out (computed):** in {r['run_id']} the gate rejected most GNSS measurements, "
+                 "because the scaled-down assumed covariance made their innovations look improbable. "
                  + ("With no other aid it then coasted on the IMU and diverged - over-confidence plus gating can "
                     "remove the very corrections the filter needs." if r["mode"] == "eskf15_gnss" else
                     "LiDAR positions kept the estimate accurate despite the rejections."))

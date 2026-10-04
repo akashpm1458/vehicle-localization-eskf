@@ -295,7 +295,7 @@
   "failed_runs": [],
   "all_checks_passed": true,
   "all_targets_met": true,
-  "wall_time_s": 76.32663722799998,
-  "process_peak_memory_mb": 251.05859375,
-  "output_size_mb": 154.7741403579712
+  "wall_time_s": 74.62031051000002,
+  "process_peak_memory_mb": 253.75390625,
+  "output_size_mb": 154.77819061279297
 }

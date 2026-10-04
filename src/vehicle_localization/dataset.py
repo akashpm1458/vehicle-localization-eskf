@@ -40,6 +40,30 @@ REQUIRED_METADATA = [
 # Same-time measurements are processed in this deterministic order.
 STREAM_ORDER = ("gnss", "lidar")
 
+# Machine-readable physical conventions this code implements. metadata.json must state
+# exactly these values; anything else (another frame, unit or timing model) is rejected
+# rather than silently misinterpreted.
+SUPPORTED_SCHEMA_VERSIONS = ("1.0",)
+SUPPORTED_CONVENTIONS = {
+    "frames": {
+        "world": "right_handed_z_up",
+        "body": "x_forward_y_left_z_up",
+        "rotation": "R_WB_body_to_world",
+    },
+    "units": {
+        "time": "ns",
+        "length": "m",
+        "angle": "rad",
+        "specific_force": "m/s^2",
+        "angular_rate": "rad/s",
+        "covariance": "m^2",
+    },
+    "timing": {
+        "imu": "interval_held_forward_last_row_end_marker",
+        "external": "measurement_time_no_delivery_delay",
+    },
+}
+
 
 class DatasetError(ValueError):
     """Raised when a dataset fails validation."""
@@ -152,9 +176,15 @@ def _read_csv(path: Path, columns: list[str], errors: list[str]) -> tuple[np.nda
             hint = " (quaternion columns look like wxyz order; this project requires qx,qy,qz,qw)"
         errors.append(f"{path.name}: header must be {','.join(columns)}, got {','.join(header)}{hint}")
         return None
+    with path.open("r", encoding="utf-8") as fh:
+        fh.readline()
+        has_rows = any(line.strip() for line in fh)
+    if not has_rows:
+        # Header-only file: keep the documented column dimensions for downstream code.
+        return np.zeros(0, dtype=np.int64), np.zeros((0, len(columns) - 1))
     try:
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")  # empty-file warnings are reported below instead
+            warnings.simplefilter("ignore")
             t = np.loadtxt(path, delimiter=",", skiprows=1, usecols=0, dtype=np.int64, ndmin=1)
             # Parse every column (no usecols) so rows with extra/missing fields are rejected.
             full = np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2)
@@ -182,11 +212,27 @@ def _check_covariances(name: str, R: np.ndarray, errors: list[str]) -> None:
 
 
 def _check_metadata(meta: dict, errors: list[str]) -> None:
+    """Reject metadata whose declared conventions differ from what the estimator implements."""
     missing = [k for k in REQUIRED_METADATA if k not in meta]
     if missing:
         errors.append(f"metadata.json: missing required keys {missing}")
+    if "schema_version" in meta and meta["schema_version"] not in SUPPORTED_SCHEMA_VERSIONS:
+        errors.append(f"metadata.json: unsupported schema_version {meta['schema_version']!r}; "
+                      f"supported: {list(SUPPORTED_SCHEMA_VERSIONS)}")
     if meta.get("quaternion_order") != "xyzw":
         errors.append(f"metadata.json: quaternion_order must be 'xyzw', got {meta.get('quaternion_order')!r}")
+    for group, required in SUPPORTED_CONVENTIONS.items():
+        if group not in meta:
+            continue  # already reported as missing
+        declared = meta[group]
+        if not isinstance(declared, dict):
+            errors.append(f"metadata.json: '{group}' must be an object with keys {sorted(required)}")
+            continue
+        for key, expected in required.items():
+            got = declared.get(key)
+            if got != expected:
+                errors.append(f"metadata.json: {group}.{key} must be {expected!r} (the only supported "
+                              f"convention), got {got!r}; convert the data before using it")
 
 
 def _inspect(path: Path, normalize_imu: bool = False) -> tuple[ValidationResult, Dataset | None]:
@@ -262,6 +308,9 @@ def _inspect(path: Path, normalize_imu: bool = False) -> tuple[ValidationResult,
         _check_covariances(fname, R, errors)
         streams[name] = PositionStream(name, t, d[:, 0:3].copy(), R)
         summary[f"{name}_rows"] = int(t.size)
+        if t.size == 0:
+            warns.append(f"{fname}: contains no measurements (header only); modes that use '{name}' will "
+                         f"receive no {name} aiding from this dataset")
         if imu_t is not None and imu_t.size >= 2 and t.size:
             out = int(np.sum((t < imu_t[0]) | (t > imu_t[-1])))
             if out:
@@ -280,17 +329,6 @@ def _inspect(path: Path, normalize_imu: bool = False) -> tuple[ValidationResult,
     else:
         errors.append("initial_prior.json is missing")
 
-    # ground truth (optional; checked for format only)
-    if (path / "ground_truth.csv").exists():
-        gt = _read_csv(path / "ground_truth.csv", TRUTH_COLUMNS, errors)
-        if gt is not None:
-            norms = np.linalg.norm(gt[1][:, 6:10], axis=1)
-            if np.any(np.abs(norms - 1) > 1e-6):
-                errors.append("ground_truth.csv: quaternions are not unit length")
-        summary["ground_truth"] = "present"
-    else:
-        summary["ground_truth"] = "absent (accuracy metrics will be disabled)"
-
     ok = not errors
     ds = None
     if ok:
@@ -298,13 +336,61 @@ def _inspect(path: Path, normalize_imu: bool = False) -> tuple[ValidationResult,
     return ValidationResult(ok, errors, warns, summary), ds
 
 
+def _inspect_truth(path: Path) -> tuple[list[str], GroundTruth | None]:
+    """Evaluation-side validation of ground_truth.csv (never used for estimation)."""
+    errors: list[str] = []
+    res = _read_csv(path / "ground_truth.csv", TRUTH_COLUMNS, errors)
+    if res is None:
+        return errors, None
+    t, d = res
+    if t.size == 0:
+        errors.append("ground_truth.csv: contains no rows")
+        return errors, None
+    dt = np.diff(t)
+    if np.any(dt == 0):
+        errors.append(f"ground_truth.csv: {int(np.sum(dt == 0))} duplicate timestamp(s); truth must be strictly "
+                      "increasing before it can be interpolated")
+    if np.any(dt < 0):
+        errors.append(f"ground_truth.csv: {int(np.sum(dt < 0))} decreasing timestamp(s); truth must be strictly "
+                      "increasing before it can be interpolated")
+    norms = np.linalg.norm(d[:, 6:10], axis=1)
+    if np.any(np.abs(norms - 1) > 1e-6):
+        errors.append("ground_truth.csv: quaternions are not unit length")
+    if errors:
+        return errors, None
+    meta: dict = {}
+    if (path / "truth_metadata.json").exists():
+        try:
+            meta = read_json(path / "truth_metadata.json")
+        except (json.JSONDecodeError, OSError) as exc:
+            return [f"truth_metadata.json: unreadable ({exc})"], None
+    return [], GroundTruth(t, d[:, 0:3], d[:, 3:6], d[:, 6:10], d[:, 10:13], d[:, 13:16], meta)
+
+
 def validate_dataset(dataset_dir: str | Path, normalize_imu: bool = False) -> ValidationResult:
-    """Validate a dataset directory without raising."""
-    return _inspect(Path(dataset_dir), normalize_imu)[0]
+    """Validate a dataset directory without raising.
+
+    Estimator inputs and evaluation-only truth are checked separately. ``ok`` is False
+    if either is invalid; truth problems are prefixed with "[evaluation]" so it is clear
+    that estimation itself is still possible.
+    """
+    path = Path(dataset_dir)
+    result, _ = _inspect(path, normalize_imu)
+    if path.is_dir() and (path / "ground_truth.csv").exists():
+        truth_errors, _ = _inspect_truth(path)
+        result.errors += [f"[evaluation] {e}" for e in truth_errors]
+        result.summary["ground_truth"] = "present, invalid" if truth_errors else "present, valid"
+        result.ok = result.ok and not truth_errors
+    else:
+        result.summary["ground_truth"] = "absent (accuracy metrics will be disabled)"
+    return result
 
 
 def load_dataset(dataset_dir: str | Path, normalize_imu: bool = False) -> Dataset:
-    """Load estimator inputs (never ground truth). Raises DatasetError if invalid."""
+    """Load estimator inputs only. Never opens ground_truth.csv or truth_metadata.json.
+
+    Raises DatasetError if the inputs are invalid.
+    """
     result, ds = _inspect(Path(dataset_dir), normalize_imu)
     if not result.ok:
         raise DatasetError(result.report())
@@ -312,14 +398,15 @@ def load_dataset(dataset_dir: str | Path, normalize_imu: bool = False) -> Datase
 
 
 def load_ground_truth(dataset_dir: str | Path) -> GroundTruth | None:
-    """Evaluator-only access to truth. Returns None when no truth is available."""
+    """Evaluator-only access to truth. Returns None when no truth file exists.
+
+    Raises DatasetError if the truth file is malformed (wrong columns, non-finite values,
+    non-unit quaternions, or duplicate/decreasing timestamps).
+    """
     path = Path(dataset_dir)
     if not (path / "ground_truth.csv").exists():
         return None
-    errors: list[str] = []
-    res = _read_csv(path / "ground_truth.csv", TRUTH_COLUMNS, errors)
-    if res is None:
-        raise DatasetError("; ".join(errors))
-    t, d = res
-    meta = read_json(path / "truth_metadata.json") if (path / "truth_metadata.json").exists() else {}
-    return GroundTruth(t, d[:, 0:3], d[:, 3:6], d[:, 6:10], d[:, 10:13], d[:, 13:16], meta)
+    errors, gt = _inspect_truth(path)
+    if errors:
+        raise DatasetError("invalid ground truth: " + "; ".join(errors))
+    return gt

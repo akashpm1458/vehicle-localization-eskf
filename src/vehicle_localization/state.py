@@ -28,6 +28,15 @@ ERROR_STATE_LABELS = [
     "px", "py", "pz", "vx", "vy", "vz", "thx", "thy", "thz",
     "bax", "bay", "baz", "bgx", "bgy", "bgz",
 ]
+# Units of each covariance block (variances are these units squared). The attitude block is
+# the right-multiplicative, body-local rotation error: R_true = R_est Exp(dtheta).
+COVARIANCE_UNITS = {
+    "position": "m",
+    "velocity": "m/s",
+    "attitude": "rad (body-local, right-multiplicative)",
+    "accel_bias": "m/s^2",
+    "gyro_bias": "rad/s",
+}
 
 
 @dataclass
@@ -70,7 +79,7 @@ class InitialPrior:
             "gyro_bias_radps": self.bg.tolist(),
             "covariance": {
                 "error_state_order": ERROR_STATE_LABELS,
-                "units": "m, m/s, rad (body-local), m/s^2, rad/s",
+                "units": COVARIANCE_UNITS,
                 "matrix": self.P.tolist(),
             },
             "provenance": self.provenance,
@@ -81,6 +90,17 @@ class InitialPrior:
         quat = d["quaternion"]
         if not isinstance(quat, dict) or quat.get("order") != "xyzw":
             raise ValueError("initial_prior.quaternion must be {'order': 'xyzw', 'value': [...]}")
+        cov = d["covariance"]
+        if not isinstance(cov, dict):
+            raise ValueError("initial_prior.covariance must be an object with error_state_order, units and matrix")
+        # Check how the matrix is laid out BEFORE interpreting it: a matrix in another order,
+        # or with degrees / a global attitude error, would be silently wrong.
+        if cov.get("error_state_order") != ERROR_STATE_LABELS:
+            raise ValueError(f"initial_prior.covariance.error_state_order must be exactly {ERROR_STATE_LABELS}, "
+                             f"got {cov.get('error_state_order')!r}; reorder the matrix to match")
+        if cov.get("units") != COVARIANCE_UNITS:
+            raise ValueError(f"initial_prior.covariance.units must be exactly {COVARIANCE_UNITS}, got "
+                             f"{cov.get('units')!r}; convert the matrix (e.g. degrees to radians) first")
         return InitialPrior(
             t_ns=int(d["t_ns"]),
             p=np.asarray(d["position_m"], dtype=float),

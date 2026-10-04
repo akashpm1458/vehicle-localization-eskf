@@ -1,6 +1,6 @@
 # Demo report
 
-Generated 2026-10-04 20:08 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
+Generated 2026-10-04 21:09 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
 
 > All sensor data are **synthetic**. "LiDAR" means **simulated LiDAR-localizer positions** (truth plus noise), not real scan matching. Initialization is **ground-truth-assisted**: the prior is the true state at t=0 minus a sampled perturbation.
 
@@ -8,7 +8,7 @@ Generated 2026-10-04 20:08 by vehicle_localization 0.1.0 from saved metrics in t
 
 - Deterministic suite checks: **34/34 passed**
 - Engineering targets: **4/4 met**
-- Runtime: 76.3 s wall time, process peak memory 251 MB, output size 154.8 MB
+- Runtime: 74.6 s wall time, process peak memory 254 MB, output size 154.8 MB
 - Host: remote/other host (not the target laptop): Intel(R) Xeon(R) Processor @ 2.80GHz, 4 logical CPUs, 15.7 GB RAM, Linux-6.18.44-fc-v64-x86_64-with-glibc2.39, Python 3.12.3
 
 ### Engineering targets
@@ -62,7 +62,7 @@ Observation (computed): among the single effects, **perturbed initial prior only
 
 ## 4. Results (seed 7)
 
-"pos RMSE" is computed after a 10 s burn-in; "whole" includes the initialization period. NIS columns are mean **pre-gate** NIS (3 is the expectation for a consistent filter; diagnostic only).
+"pos RMSE" is computed after a 10 s burn-in; "whole" includes the initialization period. NIS columns are mean **pre-gate** NIS. About 3 is expected when the filter's models and uncertainties are consistent with the data; a departure signals some inconsistency (covariance, process model, calibration, timing or outliers) without identifying which. Diagnostic only.
 
 ### E1 - zero-bias noisy motion
 
@@ -123,9 +123,9 @@ Observation (computed): losing GNSS when it is the only aid (E3) lets the error 
 - E6_eskf15_gnss_gnss_cov_x1: mean pre-gate GNSS NIS 2.80, 1/600 GNSS measurements rejected, position RMSE 0.676 m.
 - E6_eskf15_gnss_gnss_cov_x10: mean pre-gate GNSS NIS 0.30, 0/600 GNSS measurements rejected, position RMSE 0.878 m.
 
-Interpretation: NIS above 3 means the filter is over-confident (its assumed GNSS covariance is too small); below 3 means under-confident.
-**Gate lock-out (computed):** in E6_eskf15_gnss_gnss_cov_x0.1 the over-confident filter rejected most GNSS measurements as outliers. With no other aid it then coasted on the IMU and diverged - over-confidence plus gating can remove the very corrections the filter needs.
-**Gate lock-out (computed):** in E6_eskf15_all_gnss_cov_x0.1 the over-confident filter rejected most GNSS measurements as outliers. LiDAR positions kept the estimate accurate despite the rejections.
+Interpretation: a mean pre-gate NIS well above 3 means the innovations are larger than the filter's own predicted innovation covariance S; well below 3 means they are smaller. An elevated NIS is a symptom, not a diagnosis: it can come from an assumed measurement covariance that is too small, but equally from process noise that is too small, unmodelled biases or calibration errors, timing errors, outliers or a diverging state. In E6 the measurements and every other setting are identical across runs and only the assumed GNSS covariance scale changes, so the *differences* between these runs can be attributed to that scale; the NIS value alone would not prove it.
+**Gate lock-out (computed):** in E6_eskf15_gnss_gnss_cov_x0.1 the gate rejected most GNSS measurements, because the scaled-down assumed covariance made their innovations look improbable. With no other aid it then coasted on the IMU and diverged - over-confidence plus gating can remove the very corrections the filter needs.
+**Gate lock-out (computed):** in E6_eskf15_all_gnss_cov_x0.1 the gate rejected most GNSS measurements, because the scaled-down assumed covariance made their innovations look improbable. LiDAR positions kept the estimate accurate despite the rejections.
 
 ### E7 - LiDAR lever-arm calibration error
 
@@ -165,7 +165,7 @@ Each measurement compared with the truth of **its own reference point** at its o
 - [fig03b_attitude_axes_bounds.png](figures/fig03b_attitude_axes_bounds.png) - Per-axis local attitude error of eskf15_all with +/-3 sigma bounds (E2)
 - [fig04_velocity_attitude_error.png](figures/fig04_velocity_attitude_error.png) - Velocity and attitude error: 9-state vs 15-state on biased data (E2)
 - [fig05_biases.png](figures/fig05_biases.png) - Estimated vs true IMU biases, eskf15_all (E2)
-- [fig06_nis_outliers.png](figures/fig06_nis_outliers.png) - Pre-gate NIS per sensor with gate threshold; rejected and injected outliers marked (E8, eskf15_all, gating on)
+- [fig06_nis_outliers.png](figures/fig06_nis_outliers.png) - Pre-gate NIS per sensor with the configured chi-square gate; rejected and injected outliers marked (E8, eskf15_all, gating on)
 - [fig07_calibration_and_dropout.png](figures/fig07_calibration_and_dropout.png) - Left: lever-arm calibration error (E7), signed position error in the body frame. Right: total-dropout close-up (E5) with 3-sigma bound
 - [fig08_summary.png](figures/fig08_summary.png) - Compact experiment summary (metric values with units)
 - [fig09_e1_position_error.png](figures/fig09_e1_position_error.png) - E1: IMU-only vs 9-state fusion on zero-bias data (log scale)

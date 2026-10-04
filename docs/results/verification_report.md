@@ -1,15 +1,15 @@
 # Verification report
 
-Generated 2026-10-04 20:09 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
+Generated 2026-10-04 21:10 by vehicle_localization 0.1.0 from saved metrics in this directory. No numbers in this report were entered by hand.
 
 > All sensor data are **synthetic**. "LiDAR" means **simulated LiDAR-localizer positions** (truth plus noise), not real scan matching. Initialization is **ground-truth-assisted**: the prior is the true state at t=0 minus a sampled perturbation.
 
 ## 1. Status
 
 - Deterministic suite checks: **26/26 passed**
-- pytest: **PASSED** (103 passed in 41.26s)
+- pytest: **PASSED** (140 passed in 48.73s)
 - Engineering targets: **12/12 met**
-- Runtime: 49.4 s wall time, process peak memory 144 MB, output size 125.2 MB
+- Runtime: 47.5 s wall time, process peak memory 143 MB, output size 125.2 MB
 - Host: remote/other host (not the target laptop): Intel(R) Xeon(R) Processor @ 2.80GHz, 4 logical CPUs, 15.7 GB RAM, Linux-6.18.44-fc-v64-x86_64-with-glibc2.39, Python 3.12.3
 
 ### Engineering targets
@@ -71,7 +71,7 @@ Observation (computed): among the single effects, **perturbed initial prior only
 
 ## 4. Results (seed 7)
 
-"pos RMSE" is computed after a 10 s burn-in; "whole" includes the initialization period. NIS columns are mean **pre-gate** NIS (3 is the expectation for a consistent filter; diagnostic only).
+"pos RMSE" is computed after a 10 s burn-in; "whole" includes the initialization period. NIS columns are mean **pre-gate** NIS. About 3 is expected when the filter's models and uncertainties are consistent with the data; a departure signals some inconsistency (covariance, process model, calibration, timing or outliers) without identifying which. Diagnostic only.
 
 ### E2 - biased motion: bias estimation
 

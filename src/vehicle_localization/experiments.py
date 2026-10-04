@@ -27,7 +27,7 @@ import yaml
 
 from . import __version__
 from .config import deep_merge, dump_config
-from .dataset import load_dataset, load_ground_truth
+from .dataset import DatasetError, load_dataset, load_ground_truth
 from .eskf import EstimatorConfig
 from .evaluation import error_series, evaluate_run, external_reference_errors
 from .runner import Dropout, load_run, run_estimator, save_run
@@ -64,16 +64,24 @@ def write_json(path: Path, obj) -> None:
 def execute_run(dataset_dir: Path, cfg: dict, mode: str, out_dir: Path, *, estimator_overrides: dict | None = None,
                 dropouts: list[tuple[str, float, float]] | None = None, meta: dict | None = None) -> dict:
     """Run, save and evaluate one estimator configuration. Returns a summary dict."""
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # Validate everything that can be wrong before any work is done.
+    drops = [Dropout.from_seconds(s, a, b) for s, a, b in (dropouts or [])]
     est_dict = deep_merge(cfg["estimator"], estimator_overrides or {})
     est_dict["mode"] = mode
     est = EstimatorConfig.from_dict(est_dict, mode)
-    ds = load_dataset(dataset_dir)  # estimator inputs only; no ground truth
-    drops = [Dropout.from_seconds(s, a, b) for s, a, b in (dropouts or [])]
+    ds = load_dataset(dataset_dir)  # estimator inputs only; ground truth is never opened here
+    out_dir.mkdir(parents=True, exist_ok=True)
     result = run_estimator(ds, est, drops)
     save_run(result, out_dir)
+    warnings_list = list(ds.warnings) + list(result.info["warnings"])
 
-    truth = load_ground_truth(dataset_dir)  # evaluator access, after the run
+    # Evaluator access, after the run. A malformed truth file disables accuracy metrics but
+    # never blocks (or changes) estimation.
+    try:
+        truth = load_ground_truth(dataset_dir)
+    except DatasetError as exc:
+        truth = None
+        warnings_list.append(f"ground truth unusable, accuracy metrics disabled: {exc}")
     labels = None
     if truth is not None:
         o = truth.metadata.get("corruptions", {}).get("outliers")
@@ -85,6 +93,8 @@ def execute_run(dataset_dir: Path, cfg: dict, mode: str, out_dir: Path, *, estim
     if truth is not None:
         metrics["external_position_reference_errors"] = external_reference_errors(ds.streams, truth)
     metrics["counts"] = result.counts
+    metrics["dropouts_applied"] = result.info["dropouts"]
+    metrics["warnings"] = warnings_list
     metrics["numerics"] = {
         "covariance_checks": result.info["covariance_checks"],
         "max_logged_quaternion_norm_error": result.info["max_logged_quaternion_norm_error"],
@@ -108,7 +118,7 @@ def execute_run(dataset_dir: Path, cfg: dict, mode: str, out_dir: Path, *, estim
         "environment": package_versions(),
         "logged_rows": int(result.t_ns.size),
         "full_covariance_rows": int(result.cov_t_ns.size),
-        "warnings": ds.warnings,
+        "warnings": warnings_list,
         **(meta or {}),
     })
     return {"metrics": metrics, "out_dir": out_dir, "n_states": result.n_states}
@@ -416,7 +426,13 @@ def run_pytest(output_dir: Path) -> dict:
 
 
 def run_monte_carlo(cfg: dict, output_dir: Path, runs: int, first_seed: int = 1000, mode: str = "eskf15_all") -> dict:
-    """Optional statistical study: many seeds of the nominal biased case, sequentially."""
+    """Optional statistical study: many seeds of the nominal biased case, sequentially.
+
+    Works for every mode, including ``imu_only`` (sensor statistics are then reported as
+    unavailable rather than assumed to exist).
+    """
+    if isinstance(runs, bool) or not isinstance(runs, int) or runs < 1:
+        raise ValueError(f"monte-carlo needs a positive integer number of runs, got {runs!r}")
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     for i in range(runs):
@@ -430,7 +446,7 @@ def run_monte_carlo(cfg: dict, output_dir: Path, runs: int, first_seed: int = 10
                 "seed": seed,
                 "pos_rmse_3d_m": m["after_burn_in"]["position_rmse_3d_m"],
                 "att_rmse_deg": m["after_burn_in"]["attitude_rmse_deg"],
-                "gnss_nis_mean": m["innovations"]["gnss"]["nis_pre_gate_mean"],
+                "gnss_nis_mean": m["innovations"].get("gnss", {}).get("nis_pre_gate_mean"),
                 "lidar_nis_mean": m["innovations"].get("lidar", {}).get("nis_pre_gate_mean"),
                 "pos_3sigma_coverage_min": min(m["after_burn_in"]["coverage_3sigma"]["position_axis"]),
             })
@@ -440,11 +456,17 @@ def run_monte_carlo(cfg: dict, output_dir: Path, runs: int, first_seed: int = 10
     summary = {"mode": mode, "runs": runs, "seeds": [r["seed"] for r in rows],
                "pos_rmse_3d_m": {"mean": float(arr.mean()), "std": float(arr.std(ddof=1)) if runs > 1 else 0.0,
                                  "max": float(arr.max())},
-               "mean_gnss_nis": float(np.mean([r["gnss_nis_mean"] for r in rows])),
-               "mean_lidar_nis": float(np.mean([r["lidar_nis_mean"] for r in rows if r["lidar_nis_mean"] is not None])),
+               "mean_gnss_nis": _mean_or_none(r["gnss_nis_mean"] for r in rows),
+               "mean_lidar_nis": _mean_or_none(r["lidar_nis_mean"] for r in rows),
                "fraction_below_1m": float(np.mean(arr < 1.0))}
     write_json(output_dir / "monte_carlo_summary.json", summary)
     return summary
+
+
+def _mean_or_none(values) -> float | None:
+    """Mean of the available values; None when a sensor was not used in any run."""
+    vals = [v for v in values if v is not None]
+    return float(np.mean(vals)) if vals else None
 
 
 def load_yaml(path: Path) -> dict:

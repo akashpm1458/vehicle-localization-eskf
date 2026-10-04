@@ -2,7 +2,7 @@
 
 Estimate a vehicle's motion from noisy sensors using an **error-state Kalman filter (ESKF)**.
 
-> **Status: working.** All required steps are implemented and tested: 103 tests pass, and every engineering target was met on seeds 7, 23 and 42. The results below come from real runs on a remote cloud machine, **not** the target laptop. Re-run `demo` to get numbers for your own machine.
+> **Status: working.** All required steps are implemented and tested: 140 tests pass, and every engineering target was met on seeds 7, 23 and 42. The results below come from real runs on a remote cloud machine, **not** the target laptop. Re-run `demo` to get numbers for your own machine.
 
 ---
 
@@ -182,7 +182,16 @@ python -m vehicle_localization verify --config configs/default.yaml --seeds 7 23
 python -m pytest -q
 ```
 
+`run` options:
+
+- `--mode`: if you leave it out, the mode comes from `estimator.mode` in the config.
+- `--dropout STREAM:START_S:END_S` (repeatable, for example `--dropout gnss:40:60`): `STREAM` must
+  be `gnss` or `lidar`, the times must be finite, and start must be less than end. Bad requests are
+  rejected before anything runs. The run prints how many measurements each interval removed, and
+  warns if an interval removed none.
+
 Optional, and only when you want it: `python -m vehicle_localization monte-carlo --runs 20 --output results/monte_carlo`.
+`--runs` must be a positive integer. Every mode works, including `imu_only`, which reports NIS as "n/a".
 
 On Windows, put `.\.venv\Scripts\python.exe` in front of each command instead of `python`. Use `--config configs/smoke.yaml` for a fast 10-second version.
 
@@ -200,7 +209,7 @@ Measured on the remote cloud machine (4-core Xeon, not the target laptop):
 
 | Command | Time | Peak memory | Output size |
 |---|---|---|---|
-| `demo` | 76 s | 251 MB | 155 MB |
+| `demo` | 75 s | 254 MB | 155 MB |
 | One filter run | about 2.5 s | — | — |
 
 ---

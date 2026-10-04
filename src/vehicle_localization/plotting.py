@@ -231,10 +231,24 @@ def plot_biases(es: dict, run, path: Path, title: str, dpi: int = 130) -> Path:
     return _finish(fig, path, dpi)
 
 
-def plot_nis(innovations: dict, path: Path, title: str, outlier_t_ns=None, dpi: int = 130) -> Path:
+def gate_label(threshold: float, probability: float | None = None, enabled: bool = True) -> str:
+    """Legend text for the NIS gate, derived from the configured probability.
+
+    If no probability is given it is recovered from the logged threshold
+    (threshold = chi2.ppf(p, 3)), so the label always matches what was applied.
+    """
+    from scipy.stats import chi2
+
+    p = float(chi2.cdf(threshold, df=3)) if probability is None else float(probability)
+    text = f"gate chi2(3), p = {100 * p:.4g}%: NIS = {threshold:.2f}"
+    return text if enabled else text + " (gating disabled; not applied)"
+
+
+def plot_nis(innovations: dict, path: Path, title: str, outlier_t_ns=None, dpi: int = 130,
+             gate_probability: float | None = None) -> Path:
     """Pre-gate NIS per sensor with the gate threshold; rejected measurements marked."""
     sensors = [s for s in ("gnss", "lidar") if np.any(innovations["sensor"] == s)]
-    fig, axes = plt.subplots(len(sensors) or 1, 1, figsize=(10, 3.2 * max(1, len(sensors))), sharex=True,
+    fig, axes = plt.subplots(len(sensors) or 1, 1, figsize=(13, 3.2 * max(1, len(sensors))), sharex=True,
                              squeeze=False)
     cols = {}
     for ax, s in zip(axes[:, 0], sensors):
@@ -251,11 +265,12 @@ def plot_nis(innovations: dict, path: Path, title: str, outlier_t_ns=None, dpi: 
             lab = np.isin(innovations["t_ns"][m], outlier_t_ns[1])
             ax.semilogy(t[lab], nis[lab], linestyle="none", marker="o", mfc="none", color="k", markersize=8,
                         label="injected outlier (evaluator label)")
-        ax.axhline(thr, color="k", ls="--", lw=1, label=f"gate chi2(3) 99.73% = {thr:.2f}")
+        enabled = bool(np.any(innovations["gating_enabled"][m])) if "gating_enabled" in innovations else True
+        ax.axhline(thr, color="k", ls="--", lw=1, label=gate_label(thr, gate_probability, enabled))
         ax.axhline(3.0, color="0.5", ls=":", lw=1, label="E[NIS] = 3 if consistent")
         ax.set_ylabel(f"{s} NIS")
         ax.grid(alpha=0.3, which="both")
-        ax.legend(fontsize=7, loc="upper right", ncol=2)
+        ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1.0))  # outside: never hides data
         cols[f"{s} t_s"], cols[f"{s} nis"], cols[f"{s} accepted"] = t, nis, acc.astype(float)
     axes[0, 0].set_title(title)
     axes[-1, 0].set_xlabel("time [s]")

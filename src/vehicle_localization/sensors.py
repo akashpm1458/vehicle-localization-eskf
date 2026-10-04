@@ -27,6 +27,7 @@ from . import __version__
 from .dataset import (
     SCHEMA_VERSION,
     STREAM_FILES,
+    SUPPORTED_CONVENTIONS,
     GroundTruth,
     read_json,
     write_imu_csv,
@@ -203,18 +204,24 @@ def _metadata(cfg: dict, counts: dict) -> dict:
         "dataset_kind": "synthetic",
         "name": ds["name"],
         "trajectory": ds["trajectory"],
+        # Machine-readable conventions (checked by the validator) plus human-readable notes.
         "frames": {
-            "world": "W: right-handed local frame, z up (synthetic x/y are local axes)",
-            "body": "B: IMU/body frame, x forward, y left, z up; IMU at the body origin",
-            "rotation": "quaternion represents R_WB (body to world)",
+            **SUPPORTED_CONVENTIONS["frames"],
+            "description": {
+                "world": "W: right-handed local frame, z up (synthetic x/y are local axes)",
+                "body": "B: IMU/body frame, x forward, y left, z up; IMU at the body origin",
+                "rotation": "quaternion represents R_WB (body to world)",
+            },
         },
-        "units": {"time": "integer nanoseconds from dataset start", "length": "m", "angle": "rad",
-                  "specific_force": "m/s^2", "angular_rate": "rad/s", "covariance": "m^2"},
+        "units": {**SUPPORTED_CONVENTIONS["units"], "description": "time is integer ns from dataset start"},
         "quaternion_order": "xyzw",
         "timing": {
-            "imu": "row k is an interval measurement held over [t_k, t_k+1); the final row only marks the "
-                   "end of coverage and is never propagated",
-            "external": "position measurements are stamped at measurement time; no delivery delay",
+            **SUPPORTED_CONVENTIONS["timing"],
+            "description": {
+                "imu": "row k is an interval measurement held over [t_k, t_k+1); the final row only marks the "
+                       "end of coverage and is never propagated",
+                "external": "position measurements are stamped at measurement time; no delivery delay",
+            },
         },
         "seed": ds["seed"],
         "duration_s": ds["duration_s"],

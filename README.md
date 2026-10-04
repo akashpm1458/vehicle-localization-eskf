@@ -175,8 +175,7 @@ python -m pytest -q
 
 ## Background
 
-- An independent project inspired by the University of Toronto course *State Estimation and Localization for Self-Driving Cars*.
-- It is not a copy of the course assignment.
+
 - Main reference: J. Solà, [Quaternion kinematics for the error-state Kalman filter](https://arxiv.org/abs/1711.02508).
 
 ## License

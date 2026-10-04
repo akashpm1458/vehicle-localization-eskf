@@ -1,0 +1,119 @@
+# Default configuration. Every group is validated on load.
+# The filter only ever sees the `estimator` group; `truth` is simulator-only.
+dataset:
+  name: default
+  duration_s: 120.0
+  trajectory: figure_eight
+  figure_eight:
+    period_s: 60.0
+    amp_x_m: 40.0
+    amp_y_m: 20.0
+  imu_rate_hz: 100
+  gnss:
+    rate_hz: 5
+    first_time_s: 0.03
+  lidar:
+    enabled: true
+    rate_hz: 10
+    first_time_s: 0.07
+  seed: 7
+  output: data/generated/default
+truth:
+  noise_free: false
+  bias_mode: biased
+  accel_noise_density: 0.02
+  gyro_noise_density: 0.001
+  accel_bias_rw: 0.0002
+  gyro_bias_rw: 2.0e-05
+  accel_bias_initial:
+  - 0.03
+  - -0.02
+  - 0.04
+  gyro_bias_initial:
+  - 0.001
+  - -0.0005
+  - 0.0008
+  gnss:
+    sigma_m:
+    - 1.0
+    - 1.0
+    - 2.0
+    lever_arm_m:
+    - 0.2
+    - 0.0
+    - 1.0
+  lidar:
+    sigma_m:
+    - 0.15
+    - 0.15
+    - 0.2
+    lever_arm_m:
+    - 0.5
+    - 0.0
+    - 1.2
+estimator:
+  mode: eskf15_all
+  gravity_mps2:
+  - 0.0
+  - 0.0
+  - -9.80665
+  accel_noise_density: 0.02
+  gyro_noise_density: 0.001
+  accel_bias_rw: 0.0002
+  gyro_bias_rw: 2.0e-05
+  lever_arms_m:
+    gnss:
+    - 0.2
+    - 0.0
+    - 1.0
+    lidar:
+    - 0.5
+    - 0.0
+    - 1.2
+  covariance_scale:
+    gnss: 1.0
+    lidar: 1.0
+  gating:
+    enabled: true
+    probability: 0.9973
+  discretization: fast
+  max_substep_s: 0.01
+  max_imu_gap_s: 0.05
+  covariance_check_every: 100
+  full_covariance_log_every: 10
+initialization:
+  source: generated_perturbed_truth
+  sigma:
+    position_m: 1.0
+    velocity_mps: 0.3
+    attitude_deg: 2.0
+    accel_bias_mps2: 0.1
+    gyro_bias_radps: 0.005
+experiment:
+  dropout_interval_s:
+  - 40.0
+  - 60.0
+  outliers:
+    stream: gnss
+    fraction: 0.05
+    offset_m:
+    - 20.0
+    - -15.0
+    - 8.0
+    after_s: 10.0
+  gnss_covariance_scales:
+  - 0.1
+  - 1.0
+  - 10.0
+  lidar_wrong_lever_arm_m:
+  - 0.7
+  - 0.1
+  - 1.2
+  verification_seeds:
+  - 7
+  - 23
+  - 42
+report:
+  burn_in_s: 10.0
+  dpi: 130
+  output: results/suite

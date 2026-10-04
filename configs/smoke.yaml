@@ -1,0 +1,13 @@
+# Small, fast development configuration (10 s instead of 120 s).
+# Values not listed here come from the defaults.
+dataset:
+  name: smoke
+  duration_s: 10.0
+  output: data/generated/smoke
+experiment:
+  dropout_interval_s: [4.0, 6.0]
+  outliers:
+    after_s: 2.0
+report:
+  burn_in_s: 2.0
+  output: results/smoke

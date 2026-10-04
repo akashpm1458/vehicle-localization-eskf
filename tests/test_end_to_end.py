@@ -105,3 +105,19 @@ def test_cli_generate_validate_run(tmp_path):
     assert r2.returncode == 0 and "new run directory" in r2.stdout
     bad = subprocess.run(py + ["validate", "--data", str(tmp_path / "nope")], cwd=ROOT)
     assert bad.returncode == 1
+
+
+def test_suite_on_smoke_config_produces_report(tmp_path):
+    """The whole experiment pipeline (E0-E8, figures, report) on the 10 s smoke config."""
+    out = tmp_path / "suite"
+    r = subprocess.run([sys.executable, "-m", "vehicle_localization", "suite", "--config",
+                        str(ROOT / "configs" / "smoke.yaml"), "--output", str(out)], cwd=ROOT,
+                       capture_output=True, text=True)
+    assert r.returncode in (0, 2), r.stdout + r.stderr  # 2 = completed but a target was missed
+    status = json.loads((out / "suite_status.json").read_text())
+    assert status["all_checks_passed"] and not status["failed_runs"]
+    report = (out / "report.md").read_text()
+    for section in ("E1", "E2", "E3", "E5", "E6", "E7", "E8", "ground-truth-assisted"):
+        assert section in report
+    assert (out / "comparison.csv").exists()
+    assert len(list((out / "figures").glob("*.png"))) >= 8

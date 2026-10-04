@@ -192,7 +192,7 @@ def cmd_monte_carlo(args) -> int:
     out = resolve_output(args.output, args.overwrite)
     s = run_monte_carlo(cfg, out, args.runs, mode=args.mode)
     print(f"{s['runs']} runs of {s['mode']}: position RMSE mean {s['pos_rmse_3d_m']['mean']:.3f} m, "
-          f"std {s['pos_rmse_3d_m']['std']:.3f} m, max {s['pos_rmse_3d_m']['max']:.3f} m; "
+          f"std {s['pos_rmse_3d_m']['std']:.4f} m, max {s['pos_rmse_3d_m']['max']:.3f} m; "
           f"fraction below 1 m: {s['fraction_below_1m']:.2f}; mean GNSS NIS {s['mean_gnss_nis']:.2f}, "
           f"mean LiDAR NIS {s['mean_lidar_nis']:.2f}")
     print(f"outputs in {out}")

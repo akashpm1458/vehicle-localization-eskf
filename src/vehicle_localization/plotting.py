@@ -26,11 +26,14 @@ _CYCLE = [("-", "o"), ("--", "s"), ("-.", "^"), (":", "x"), ((0, (5, 1, 1, 1)), 
 
 
 def style_for(label: str, i: int = 0) -> dict:
-    """Plot kwargs for a method label; unknown labels get a distinct dash/marker combo."""
-    for key, st in STYLE.items():
-        if label == key or label.startswith(key + " "):
-            s = st
-            break
+    """Plot kwargs for a method label.
+
+    Exact method names get their fixed style; any other label (e.g. two variants of the
+    same method in one plot) gets a distinct dash + marker combination from its index,
+    so curves never differ by colour alone.
+    """
+    if label in STYLE:
+        s = STYLE[label]
     else:
         ls, mk = _CYCLE[i % len(_CYCLE)]
         s = {"color": f"C{i % 10}", "ls": ls, "lw": 1.4, "marker": mk}

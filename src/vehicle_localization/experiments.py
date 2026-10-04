@@ -261,6 +261,8 @@ def summarize(spec: RunSpec, metrics: dict, seed: int) -> dict:
         row[name] = metrics[block][key]
     me = metrics["after_burn_in"]["position_mean_error_axis_m"]
     row["pos_mean_err_x_m"], row["pos_mean_err_y_m"], row["pos_mean_err_z_m"] = me
+    mb = metrics["after_burn_in"]["position_mean_error_body_axis_m"]
+    row["pos_mean_err_body_x_m"], row["pos_mean_err_body_y_m"], row["pos_mean_err_body_z_m"] = mb
     cov = metrics["after_burn_in"]["coverage_3sigma"]["position_axis"]
     row["pos_3sigma_coverage_min"] = min(cov) if cov else None
     for s in ("gnss", "lidar"):

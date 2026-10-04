@@ -59,6 +59,9 @@ def error_series(run, truth: GroundTruth) -> dict:
         "t_ns": run.t_ns[mask],
         "t_s": run.t_ns[mask] * 1e-9,
         "dp": tr["p"] - run.p[mask],
+        # The same position error expressed in the true body frame (reveals body-fixed effects
+        # such as a lever-arm error, which average out in world axes while the vehicle turns).
+        "dp_body": rotate_batch(tr["q"], tr["p"] - run.p[mask], inverse=True),
         "dv": tr["v"] - run.v[mask],
         "dth": dth,
         "dba": tr["ba"] - run.ba[mask],
@@ -80,6 +83,7 @@ def _block_metrics(es: dict, sel: np.ndarray, n_states: int) -> dict:
         "position_rmse_horizontal_m": _rmse(dp[:, :2]),
         "position_rmse_axis_m": _axis_rmse(dp),
         "position_mean_error_axis_m": dp.mean(axis=0).tolist() if dp.size else None,
+        "position_mean_error_body_axis_m": es["dp_body"][sel].mean(axis=0).tolist() if dp.size else None,
         "position_final_error_m": float(pos_norm[-1]) if pos_norm.size else float("nan"),
         "position_max_error_m": float(pos_norm.max()) if pos_norm.size else float("nan"),
         "velocity_rmse_3d_mps": _rmse(dv),

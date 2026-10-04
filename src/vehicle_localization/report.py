@@ -41,8 +41,8 @@ FIGURES = [
     ("fig05_biases.png", "Estimated vs true IMU biases, eskf15_all (E2)"),
     ("fig06_nis_outliers.png", "Pre-gate NIS per sensor with gate threshold; rejected and injected outliers "
                                "marked (E8, eskf15_all, gating on)"),
-    ("fig07_calibration_and_dropout.png", "Left: lever-arm calibration error (E7), signed per-axis position "
-                                          "error. Right: total-dropout close-up (E5) with 3-sigma bound"),
+    ("fig07_calibration_and_dropout.png", "Left: lever-arm calibration error (E7), signed position error in "
+                                          "the body frame. Right: total-dropout close-up (E5) with 3-sigma bound"),
     ("fig08_summary.png", "Compact experiment summary (metric values with units)"),
     ("fig09_e1_position_error.png", "E1: IMU-only vs 9-state fusion on zero-bias data (log scale)"),
     ("fig10_e6_gnss_covariance_scaling.png", "E6: effect of the assumed GNSS covariance scale"),
@@ -123,14 +123,17 @@ def _calibration_dropout_figure(es_ok, es_bad, es_drop, d0, d1, path: Path, dpi:
     fig, axes = plt.subplots(1, 2, figsize=(15, 5))
     ax = axes[0]
     cols = {"t_s": es_ok["t_s"][::10]}
-    for j, ls in zip(range(3), ("-", "--", ":")):
-        ax.plot(es_ok["t_s"], es_ok["dp"][:, j], color="#1f77b4", ls=ls, lw=1.0, label=f"correct arm, {'xyz'[j]}")
-        ax.plot(es_bad["t_s"], es_bad["dp"][:, j], color="#d62728", ls=ls, lw=1.0, label=f"wrong arm, {'xyz'[j]}")
-        cols[f"correct_{'xyz'[j]}"] = es_ok["dp"][::10, j]
-        cols[f"wrong_{'xyz'[j]}"] = es_bad["dp"][::10, j]
-    ax.set_title("E7: signed position error (truth - estimate), LiDAR lever arm")
+    for j, ls in zip(range(2), ("-", "--")):
+        ax.plot(es_ok["t_s"], es_ok["dp_body"][:, j], color="#1f77b4", ls=ls, lw=1.0,
+                label=f"correct arm, body {'xyz'[j]}")
+        ax.plot(es_bad["t_s"], es_bad["dp_body"][:, j], color="#d62728", ls=ls, lw=1.0, marker="ox"[j],
+                markevery=0.05, markersize=4, label=f"wrong arm, body {'xyz'[j]}")
+        cols[f"correct_body_{'xyz'[j]}"] = es_ok["dp_body"][::10, j]
+        cols[f"wrong_body_{'xyz'[j]}"] = es_bad["dp_body"][::10, j]
+    ax.set_title("E7: signed position error in the BODY frame (truth - estimate)")
     ax.set_xlabel("time [s]")
     ax.set_ylabel("position error [m]")
+    ax.set_ylim(-0.6, 0.6)
     ax.grid(alpha=0.3)
     ax.legend(fontsize=7, ncol=2)
     ax = axes[1]
@@ -439,27 +442,47 @@ def write_report(suite_dir: Path, cfg: dict, status: dict, host: str, title: str
     e6 = [r["run_id"] for r in rows if r["experiment"] == "E6"]
     L.append(exp_table(e6, [("min pos 3-sigma coverage", lambda r: _f(r["pos_3sigma_coverage_min"], 3))]))
     L.append("")
-    L.append("A scale below 1 makes the filter over-confident in GNSS (NIS well above 3, more rejections, "
-             "coverage drops); above 1 makes it under-confident (NIS below 3). The numbers above show what "
-             "actually happened in this run.")
+    for r in sorted((r for r in rows if r["experiment"] == "E6"), key=lambda r: (r["mode"], r["run_id"])):
+        tot = r["gnss_accepted"] + r["gnss_rejected"]
+        L.append(f"- {r['run_id']}: mean pre-gate GNSS NIS {_f(r['gnss_nis_mean_pre_gate'], 2)}, "
+                 f"{int(r['gnss_rejected'])}/{int(tot)} GNSS measurements rejected, position RMSE "
+                 f"{_f(r['pos_rmse_3d_m'])} m.")
+    lock = [r for r in rows if r["experiment"] == "E6" and r["gnss_rejected"] > 0.5 * (r["gnss_accepted"] +
+                                                                                       r["gnss_rejected"])]
+    L.append("")
+    L.append("Interpretation: NIS above 3 means the filter is over-confident (its assumed GNSS covariance is too "
+             "small); below 3 means under-confident.")
+    for r in lock:
+        L.append(f"**Gate lock-out (computed):** in {r['run_id']} the over-confident filter rejected most GNSS "
+                 "measurements as outliers. "
+                 + ("With no other aid it then coasted on the IMU and diverged - over-confidence plus gating can "
+                    "remove the very corrections the filter needs." if r["mode"] == "eskf15_gnss" else
+                    "LiDAR positions kept the estimate accurate despite the rejections."))
     L.append("")
 
     L.append("### E7 - LiDAR lever-arm calibration error")
     L.append("")
     L.append(exp_table(["E7_eskf15_all_lidar_arm_correct", "E7_eskf15_all_lidar_arm_wrong"],
-                       [("mean err x [m]", lambda r: _f(r["pos_mean_err_x_m"], 4)),
-                        ("mean err y [m]", lambda r: _f(r["pos_mean_err_y_m"], 4)),
-                        ("mean err z [m]", lambda r: _f(r["pos_mean_err_z_m"], 4))]))
+                       [("mean err world x/y/z [m]", lambda r: _f([r["pos_mean_err_x_m"], r["pos_mean_err_y_m"],
+                                                                   r["pos_mean_err_z_m"]], 3)),
+                        ("mean err body x/y/z [m]", lambda r: _f([r["pos_mean_err_body_x_m"],
+                                                                  r["pos_mean_err_body_y_m"],
+                                                                  r["pos_mean_err_body_z_m"]], 3))]))
     L.append("")
     if "E7_eskf15_all_lidar_arm_correct" in by and "E7_eskf15_all_lidar_arm_wrong" in by:
         a, b = by["E7_eskf15_all_lidar_arm_correct"], by["E7_eskf15_all_lidar_arm_wrong"]
-        L.append(f"Observation (computed): the wrong body-fixed lever arm changes post-burn-in position RMSE from "
-                 f"{_f(a['pos_rmse_3d_m'])} m to {_f(b['pos_rmse_3d_m'])} m and LiDAR mean NIS from "
-                 f"{_f(a['lidar_nis_mean_pre_gate'], 2)} to {_f(b['lidar_nis_mean_pre_gate'], 2)}. Because the "
-                 "error is fixed in the body frame, its world-frame effect rotates with heading, so a signed "
-                 "mean over a full figure-eight partly cancels while the RMSE does not. Only a translational "
-                 "lever-arm error was tested; rotational (boresight) calibration is not represented by a "
-                 "position-only measurement model.")
+        d_arm = np.asarray(cfg["experiment"]["lidar_wrong_lever_arm_m"]) - np.asarray(
+            cfg["estimator"]["lever_arms_m"]["lidar"])
+        L.append(f"Observation (computed): the wrong body-fixed lever arm (error {_f(d_arm.tolist(), 2)} m, "
+                 f"magnitude {_f(float(np.linalg.norm(d_arm)))} m) raises post-burn-in position RMSE from "
+                 f"{_f(a['pos_rmse_3d_m'])} m to {_f(b['pos_rmse_3d_m'])} m, while LiDAR mean NIS only moves from "
+                 f"{_f(a['lidar_nis_mean_pre_gate'], 2)} to {_f(b['lidar_nis_mean_pre_gate'], 2)}. The filter "
+                 "explains the LiDAR data by shifting its position estimate by R * (lever-arm error), so the "
+                 "innovations hardly reveal the fault; only the coarse GNSS disagrees. In world axes the signed "
+                 "mean error largely cancels as the heading turns through the figure-eight, but in the body frame "
+                 f"it is {_f([b['pos_mean_err_body_x_m'], b['pos_mean_err_body_y_m'], b['pos_mean_err_body_z_m']])} "
+                 "m - close to the lever-arm error itself. Only a translational lever-arm error was tested; "
+                 "rotational (boresight) calibration is not represented by a position-only measurement model.")
         L.append("")
 
     L.append("### E8 - GNSS outliers, gating off vs on")

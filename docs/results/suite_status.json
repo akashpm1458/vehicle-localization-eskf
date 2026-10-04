@@ -1,0 +1,301 @@
+{
+  "seeds": [
+    7
+  ],
+  "checks": [
+    {
+      "check": "E0 stationary: 10 s position drift < 1e-6 m",
+      "value": 0.0,
+      "passed": true
+    },
+    {
+      "check": "E0 stationary_tilted: 10 s position drift < 1e-6 m",
+      "value": 3.806405350373924e-15,
+      "passed": true
+    },
+    {
+      "check": "E0 constant_velocity: 10 s position drift < 1e-6 m",
+      "value": 7.802150739164598e-13,
+      "passed": true
+    },
+    {
+      "check": "E0 stationary: quaternion norm error < 1e-10",
+      "value": 0.0,
+      "passed": true
+    },
+    {
+      "check": "E0 stationary_tilted: quaternion norm error < 1e-10",
+      "value": 0.0,
+      "passed": true
+    },
+    {
+      "check": "E0 constant_velocity: quaternion norm error < 1e-10",
+      "value": 0.0,
+      "passed": true
+    },
+    {
+      "check": "E0 constant_yaw_rate: quaternion norm error < 1e-10",
+      "value": 2.220446049250313e-16,
+      "passed": true
+    },
+    {
+      "check": "E0 smooth_rpy: quaternion norm error < 1e-10",
+      "value": 2.220446049250313e-16,
+      "passed": true
+    },
+    {
+      "check": "E0 constant_yaw_rate: error shrinks when the step is halved",
+      "value": [
+        4.000000432523313,
+        3.999999832681354
+      ],
+      "passed": true
+    },
+    {
+      "check": "E0 figure_eight: error shrinks when the step is halved",
+      "value": [
+        4.000000151512555,
+        4.000000985227907
+      ],
+      "passed": true
+    },
+    {
+      "check": "E0 smooth_rpy: error shrinks when the step is halved",
+      "value": [
+        4.000051502749583,
+        4.000012909318198
+      ],
+      "passed": true
+    },
+    {
+      "check": "seed 7 E1_imu_only: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E1_eskf9_gnss: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E1_eskf9_all: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E2_imu_only: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E2_eskf9_all: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E2_eskf15_all: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E3_eskf15_gnss_reference: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E3_eskf15_gnss_gnss_dropout: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E4_eskf15_all_gnss_dropout: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E5_eskf15_all_total_dropout: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E5_eskf15_all_total_dropout_gating_off: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E6_eskf15_gnss_gnss_cov_x0.1: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E6_eskf15_gnss_gnss_cov_x1: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E6_eskf15_gnss_gnss_cov_x10: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E6_eskf15_all_gnss_cov_x0.1: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E6_eskf15_all_gnss_cov_x1: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E6_eskf15_all_gnss_cov_x10: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E7_eskf15_all_lidar_arm_correct: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E7_eskf15_all_lidar_arm_wrong: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E8_eskf15_gnss_gating_off: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E8_eskf15_gnss_gating_on: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E8_eskf15_all_gating_off: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    },
+    {
+      "check": "seed 7 E8_eskf15_all_gating_on: covariance finite/symmetric/PSD, quaternion norm < 1e-10",
+      "value": {
+        "roundoff_negative_eigs": 0,
+        "q_norm_err": 2.220446049250313e-16
+      },
+      "passed": true
+    }
+  ],
+  "targets": [
+    {
+      "target": "eskf15_all post-initialization 3-D position RMSE (biased case)",
+      "seed": 7,
+      "value": 0.09588186237774521,
+      "threshold": "< 1.0 m",
+      "met": true,
+      "note": ""
+    },
+    {
+      "target": "full aided estimator beats IMU-only over the complete run (position RMSE)",
+      "seed": 7,
+      "value": [
+        0.10293818283933062,
+        1006.703134592441
+      ],
+      "threshold": "eskf15_all < imu_only",
+      "met": true,
+      "note": ""
+    },
+    {
+      "target": "injected GNSS outlier recall with gating (eskf15_all)",
+      "seed": 7,
+      "value": 1.0,
+      "threshold": ">= 0.90",
+      "met": true,
+      "note": "false rejection rate of clean GNSS: 0.0035"
+    },
+    {
+      "target": "bias estimation improves position RMSE in E2 (investigate if not)",
+      "seed": 7,
+      "value": [
+        0.09588186237774521,
+        0.1615584187664661
+      ],
+      "threshold": "eskf15_all < eskf9_all",
+      "met": true,
+      "note": "comparison target, not a guaranteed result"
+    }
+  ],
+  "failed_runs": [],
+  "all_checks_passed": true,
+  "all_targets_met": true,
+  "wall_time_s": 76.32663722799998,
+  "process_peak_memory_mb": 251.05859375,
+  "output_size_mb": 154.7741403579712
+}

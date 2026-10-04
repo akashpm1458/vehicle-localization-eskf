@@ -11,8 +11,8 @@ dist/
 venv/
 
 # Generated data and results (reproducible from configs)
-data/generated/
-results/
+/data/generated/
+/results/
 
 # OS / editor
 .DS_Store

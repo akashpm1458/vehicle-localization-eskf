@@ -1,3 +1,6 @@
+# Exact versions used for the reported results.
+# Tested on: Linux x86_64 (remote cloud host), Python 3.12.3. Not verified on Windows;
+# on Windows install with 'pip install -e .[dev]' and record your own versions.
 contourpy==1.4.0
 cycler==0.12.1
 fonttools==4.66.1

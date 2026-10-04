@@ -256,6 +256,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Tiny matrices: keep BLAS single-threaded (also covers the console-script entry point,
+    # which does not go through __main__.py). NumPy is imported lazily after this point.
+    import os
+
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(var, "1")
     args = build_parser().parse_args(argv)
     try:
         return int(args.func(args))

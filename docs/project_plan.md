@@ -6,6 +6,37 @@ This file breaks the whole project brief into small steps, in build order. Every
 - Finish a step's **Done when** before starting the next step.
 - Tick the boxes as you go.
 
+## Status (implementation complete)
+
+| Phase | State | Evidence |
+|---|---|---|
+| Part 0 — Ground rules | followed | Budgets checked in the report; remote timings labelled as remote |
+| A — Environment and data | done | `doctor`, `generate`, `validate`; tests in `tests/test_rotations.py`, `test_truth_and_sensors.py`, `test_dataset_and_config.py` |
+| B — Inertial propagation | done | Zero-noise fixtures drift below 1e-6 m; scheduler tests in `test_propagation_and_scheduler.py` |
+| C — Nine-state fusion | done | Jacobian, reset and discretization tests in `test_eskf_math.py`; E1 in the report |
+| D — Fifteen-state | done | `test_bias_estimation.py`; E2 in the report |
+| E — Robustness | done | E0–E8 in [results/report.md](results/report.md); seeds 7, 23, 42 in [results/verification_report.md](results/verification_report.md) |
+| F — Docs and handover | done | `math.md`, `data_format.md`, `learning_guide.md`, `recorded_data.md`, README |
+
+### Deliberate choices
+
+These go beyond the brief or interpret it:
+
+- **E6** runs both `eskf15_gnss` and `eskf15_all`, because the effect of the GNSS covariance is only clearly visible when GNSS is the only aid.
+- **E8** runs both modes, for the same reason.
+- **E3** adds a no-dropout reference run.
+- **E5** adds a gating-off diagnostic run.
+- **`verify`** runs E0, the pytest suite, E2 and E8 for each seed, rather than the full matrix, to stay within the disk budget.
+
+### Not done or not verified
+
+- Results on the target laptop. All timings so far are from a remote cloud machine.
+- Installation on Windows.
+- The optional Monte Carlo study: the command exists and works, but the 20-run study has not been run.
+- All optional extensions (Steps X1–X4).
+
+---
+
 **Contents**
 
 - [Part 0 — Ground rules](#part-0--ground-rules) (Steps 0.1–0.7)

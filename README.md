@@ -2,7 +2,7 @@
 
 Estimate a vehicle's motion from noisy sensors using an **error-state Kalman filter (ESKF)**.
 
-> **Status: in development.** The code is not written yet. This README is the plan, laid out as steps. Results get added only after real runs.
+> **Status: working.** All required steps are implemented and tested: 103 tests pass, and every engineering target was met on seeds 7, 23 and 42. The results below come from real runs on a remote cloud machine, **not** the target laptop. Re-run `demo` to get numbers for your own machine.
 
 ---
 
@@ -118,11 +118,31 @@ All five use the same data, so the comparison is fair.
 - How many bad measurements were rejected.
 - Plots and a generated report.
 
-Results will appear here after the runs.
+Measured results (seed 7; see [docs/results/report.md](docs/results/report.md)). RMSE is computed after a 10 s burn-in:
+
+| Setup | Data | Position RMSE | What it shows |
+|---|---|---|---|
+| `imu_only` | biased | 1051 m | Dead reckoning drifts badly |
+| `eskf9_gnss` | zero-bias | 0.61 m | GNSS alone fixes the drift |
+| `eskf9_all` | biased | 0.16 m | Ignoring the bias leaves errors outside the filter's 3σ bounds (78% coverage on the worst axis) |
+| `eskf15_all` | biased | **0.096 m** | Estimating the bias: 99.9% coverage |
+
+| Experiment | Result |
+|---|---|
+| E3: GNSS lost, no LiDAR | Error grows to 15 m during the 20 s outage |
+| E4: GNSS lost, LiDAR still on | Error stays below 0.19 m |
+| E5: both lost | Error grows to 23 m, then recovers to about 0.15 m within 5 s |
+| E6: GNSS trusted 10× too much | The GNSS-only filter rejects 581 of 600 fixes and diverges |
+| E7: lever arm 0.22 m wrong | RMSE rises to 0.25 m while NIS barely changes |
+| E8: 5% GNSS outliers | 100% of outliers rejected; 0.35% of clean fixes rejected |
+
+Multi-seed check (seeds 7, 23, 42): `eskf15_all` position RMSE was 0.096, 0.099 and 0.096 m, all below the 1.0 m target. See [docs/results/verification_report.md](docs/results/verification_report.md).
+
+![trajectory](docs/results/figures/fig01_trajectory_xy.png)
 
 ---
 
-## Step 12 — Install it (once the code exists)
+## Step 12 — Install it
 
 You need Python 3.11 or 3.12. No GPU is needed.
 
@@ -142,7 +162,7 @@ python3.11 -m venv .venv
 
 ---
 
-## Step 13 — Run it (once the code exists)
+## Step 13 — Run it
 
 Run everything in one go:
 
@@ -153,12 +173,35 @@ python -m vehicle_localization demo
 Or one step at a time:
 
 ```bash
-python -m vehicle_localization doctor
+python -m vehicle_localization doctor                      # check Python, RAM, disk, packages
 python -m vehicle_localization generate --config configs/default.yaml --output data/generated/default
+python -m vehicle_localization validate --data data/generated/default
 python -m vehicle_localization run --data data/generated/default --mode eskf15_all --output results/baseline
-python -m vehicle_localization suite --config configs/default.yaml --output results/suite
+python -m vehicle_localization suite --config configs/default.yaml --seeds 7 --output results/suite
+python -m vehicle_localization verify --config configs/default.yaml --seeds 7 23 42 --output results/verification
 python -m pytest -q
 ```
+
+Optional, and only when you want it: `python -m vehicle_localization monte-carlo --runs 20 --output results/monte_carlo`.
+
+On Windows, put `.\.venv\Scripts\python.exe` in front of each command instead of `python`. Use `--config configs/smoke.yaml` for a fast 10-second version.
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | A check or a run failed |
+| `2` | Runs finished, but an engineering target was not met |
+
+Outputs never overwrite an existing folder. A new timestamped folder is created unless you pass `--overwrite`.
+
+Measured on the remote cloud machine (4-core Xeon, not the target laptop):
+
+| Command | Time | Peak memory | Output size |
+|---|---|---|---|
+| `demo` | 76 s | 251 MB | 155 MB |
+| One filter run | about 2.5 s | — | — |
 
 ---
 
@@ -169,12 +212,25 @@ python -m pytest -q
 - No neural networks.
 - Offline processing, not real-time.
 - The path is flat (2-D motion inside a 3-D filter).
-- The starting point comes from the true state plus some noise.
+- The starting point comes from the true state plus some noise (ground-truth-assisted).
+- The GNSS and LiDAR errors are independent white noise. Real sensors have correlated, slowly drifting errors.
+- Yaw and the vertical gyro bias are only weakly observable from position measurements. They improve during turns.
+- Only a lever-arm (translation) calibration error was tested, not a rotation (boresight) error.
 
 ---
 
-## Background
+## Documentation
 
+| File | What it covers |
+|---|---|
+| [docs/project_plan.md](docs/project_plan.md) | The whole project as small steps |
+| [docs/math.md](docs/math.md) | Every equation and convention used |
+| [docs/data_format.md](docs/data_format.md) | Files, columns, units and timing rules |
+| [docs/learning_guide.md](docs/learning_guide.md) | Explains the ideas in build order, with measured examples |
+| [docs/recorded_data.md](docs/recorded_data.md) | How to use your own recorded data |
+| [docs/results/](docs/results/) | Snapshot of the generated reports and figures |
+
+## Background
 
 - Main reference: J. Solà, [Quaternion kinematics for the error-state Kalman filter](https://arxiv.org/abs/1711.02508).
 

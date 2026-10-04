@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -527,8 +528,9 @@ def write_report(suite_dir: Path, cfg: dict, status: dict, host: str, title: str
         if (suite_dir / "figures" / name).exists():
             L.append(f"- [{name}](figures/{name}) - {caption}")
     L.append("")
-    L.append("![trajectory](figures/fig01_trajectory_xy.png)")
-    L.append("")
+    if (suite_dir / "figures" / "fig01_trajectory_xy.png").exists():
+        L.append("![trajectory](figures/fig01_trajectory_xy.png)")
+        L.append("")
     L.append("## Limitations")
     L.append("")
     L.append("- Synthetic data only; conclusions need validation on recorded data. Not tested on a real vehicle.")
@@ -540,5 +542,23 @@ def write_report(suite_dir: Path, cfg: dict, status: dict, host: str, title: str
     L.append("- Timings were measured on the host stated above. They are not laptop benchmarks unless the host "
              "line says so.")
     path = suite_dir / "report.md"
-    path.write_text("\n".join(L) + "\n", encoding="utf-8")
+    path.write_text("\n".join(_drop_empty_experiment_sections(L)) + "\n", encoding="utf-8")
     return path
+
+
+def _drop_empty_experiment_sections(lines: list[str]) -> list[str]:
+    """Remove '### E..' sections whose tables have no data rows (e.g. runs not in this suite)."""
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if re.match(r"### E\d", lines[i]):
+            j = i + 1
+            while j < len(lines) and not lines[j].startswith(("### ", "## ")):
+                j += 1
+            if any(re.search(r"(^|\n)\| E\d", ln) for ln in lines[i:j]):
+                out.extend(lines[i:j])
+            i = j
+        else:
+            out.append(lines[i])
+            i += 1
+    return out

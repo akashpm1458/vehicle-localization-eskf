@@ -69,7 +69,7 @@ def _host() -> str:
 
 def cmd_run(args) -> int:
     from .config import MODES, load_config
-    from .dataset import DatasetError, load_ground_truth
+    from .dataset import load_ground_truth
     from .evaluation import error_series
     from .experiments import execute_run
     from .plotting import plot_axis_errors_with_bounds, plot_nis, plot_trajectory_xy
@@ -98,14 +98,12 @@ def cmd_run(args) -> int:
     for w in m["warnings"]:
         print(f"  warning: {w}")
     run = load_run(out)
-    try:
-        truth = load_ground_truth(args.data)
-    except DatasetError:
-        truth = None  # already reported in the warnings above
     dpi = cfg["report"]["dpi"]
     gate_p = overrides.get("gating", {}).get("probability", cfg["estimator"]["gating"]["probability"])
     plot_nis(run.innovations, out / "nis.png", f"{mode}: pre-gate NIS", dpi=dpi, gate_probability=gate_p)
-    if truth is not None:
+    # Truth-dependent plots need usable, overlapping truth - not merely a truth file.
+    if m.get("evaluation_available"):
+        truth = load_ground_truth(args.data)
         es = error_series(run, truth)
         plot_trajectory_xy(truth, {mode: run}, out / "trajectory_xy.png", f"{mode}", dpi=dpi)
         plot_axis_errors_with_bounds(es, out / "position_error_bounds.png", f"{mode}: position error", dpi=dpi)
@@ -114,7 +112,8 @@ def cmd_run(args) -> int:
               f"whole run {m['whole_run']['position_rmse_3d_m']:.3f} m; velocity RMSE {a['velocity_rmse_3d_mps']:.3f} "
               f"m/s; attitude RMSE {a['attitude_rmse_deg']:.3f} deg")
     else:
-        print(f"{mode}: no usable ground truth; accuracy metrics disabled, innovations logged")
+        print(f"{mode}: {m.get('accuracy', 'accuracy unavailable')}; truth-dependent plots skipped, "
+              "estimates and innovations saved")
     for s, st in m["innovations"].items():
         print(f"  {s}: {st['accepted']} accepted, {st['rejected']} rejected, mean pre-gate NIS {st['nis_pre_gate_mean']:.2f}")
     print(f"  wall time {m['runtime']['wall_time_s']:.2f} s; outputs in {out}")

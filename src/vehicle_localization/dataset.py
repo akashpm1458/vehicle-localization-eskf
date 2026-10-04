@@ -99,7 +99,8 @@ class GroundTruth:
     q: np.ndarray
     ba: np.ndarray
     bg: np.ndarray
-    metadata: dict
+    metadata: dict  # validated truth metadata; invalid consumed fields have been removed
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -211,8 +212,19 @@ def _check_covariances(name: str, R: np.ndarray, errors: list[str]) -> None:
         errors.append(f"{name}: {bad.size} measurement covariance(s) are not positive definite (first row {bad[0]})")
 
 
-def _check_metadata(meta: dict, errors: list[str]) -> None:
-    """Reject metadata whose declared conventions differ from what the estimator implements."""
+def _type_name(obj) -> str:
+    return "null" if obj is None else type(obj).__name__
+
+
+def _check_metadata(meta, errors: list[str]) -> None:
+    """Reject metadata whose declared conventions differ from what the estimator implements.
+
+    Every field the code reads is type-checked first, so valid-but-wrong JSON such as
+    ``null`` or ``[]`` produces a validation error instead of a crash.
+    """
+    if not isinstance(meta, dict):
+        errors.append(f"metadata.json: top level must be a JSON object, got {_type_name(meta)}")
+        return
     missing = [k for k in REQUIRED_METADATA if k not in meta]
     if missing:
         errors.append(f"metadata.json: missing required keys {missing}")
@@ -221,6 +233,17 @@ def _check_metadata(meta: dict, errors: list[str]) -> None:
                       f"supported: {list(SUPPORTED_SCHEMA_VERSIONS)}")
     if meta.get("quaternion_order") != "xyzw":
         errors.append(f"metadata.json: quaternion_order must be 'xyzw', got {meta.get('quaternion_order')!r}")
+    seed = meta.get("seed")
+    if "seed" in meta and (isinstance(seed, bool) or not isinstance(seed, int) or seed < 0):
+        errors.append(f"metadata.json: seed must be a non-negative integer, got {seed!r}")
+    dur = meta.get("duration_s")
+    if "duration_s" in meta and (isinstance(dur, bool) or not isinstance(dur, (int, float))
+                                 or not np.isfinite(dur) or dur <= 0):
+        errors.append(f"metadata.json: duration_s must be a positive number, got {dur!r}")
+    if "sensors" in meta and not isinstance(meta["sensors"], dict):
+        errors.append(f"metadata.json: sensors must be an object, got {_type_name(meta['sensors'])}")
+    if "name" in meta and not isinstance(meta["name"], str):
+        errors.append(f"metadata.json: name must be a string, got {_type_name(meta['name'])}")
     for group, required in SUPPORTED_CONVENTIONS.items():
         if group not in meta:
             continue  # already reported as missing
@@ -247,8 +270,9 @@ def _inspect(path: Path, normalize_imu: bool = False) -> tuple[ValidationResult,
     meta: dict = {}
     if (path / "metadata.json").exists():
         try:
-            meta = read_json(path / "metadata.json")
-            _check_metadata(meta, errors)
+            raw = read_json(path / "metadata.json")
+            _check_metadata(raw, errors)
+            meta = raw if isinstance(raw, dict) else {}
         except (json.JSONDecodeError, OSError) as exc:
             errors.append(f"metadata.json: unreadable ({exc})")
     else:
@@ -358,13 +382,71 @@ def _inspect_truth(path: Path) -> tuple[list[str], GroundTruth | None]:
         errors.append("ground_truth.csv: quaternions are not unit length")
     if errors:
         return errors, None
-    meta: dict = {}
-    if (path / "truth_metadata.json").exists():
-        try:
-            meta = read_json(path / "truth_metadata.json")
-        except (json.JSONDecodeError, OSError) as exc:
-            return [f"truth_metadata.json: unreadable ({exc})"], None
-    return [], GroundTruth(t, d[:, 0:3], d[:, 3:6], d[:, 6:10], d[:, 10:13], d[:, 13:16], meta)
+    meta, warns = _load_truth_metadata(path)
+    return [], GroundTruth(t, d[:, 0:3], d[:, 3:6], d[:, 6:10], d[:, 10:13], d[:, 13:16], meta, warns)
+
+
+def _is_vec3(v) -> bool:
+    return (isinstance(v, (list, tuple)) and len(v) == 3
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) and np.isfinite(x) for x in v))
+
+
+def _load_truth_metadata(path: Path) -> tuple[dict, list[str]]:
+    """Read the OPTIONAL truth_metadata.json and validate the fields the evaluator uses.
+
+    Consumed fields: ``truth_config.<stream>.lever_arm_m`` (raw-measurement reference
+    errors) and ``corruptions.outliers`` (outlier recall). Anything malformed is removed
+    and reported as a warning; only the evaluation that needs it is disabled. Ground
+    truth itself stays usable.
+    """
+    f = path / "truth_metadata.json"
+    if not f.exists():
+        return {}, []
+    try:
+        raw = read_json(f)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        return {}, [f"truth_metadata.json unreadable ({exc}); raw-measurement reference errors and outlier "
+                    "metrics disabled"]
+    if not isinstance(raw, dict):
+        return {}, [f"truth_metadata.json top level must be a JSON object, got {_type_name(raw)}; raw-measurement "
+                    "reference errors and outlier metrics disabled"]
+    meta = dict(raw)
+    warns: list[str] = []
+
+    tc = meta.get("truth_config")
+    if tc is not None:
+        if not isinstance(tc, dict):
+            warns.append(f"truth_metadata.json: truth_config must be an object, got {_type_name(tc)}; "
+                         "raw-measurement reference errors disabled")
+            del meta["truth_config"]
+        else:
+            tc = dict(tc)
+            for name in STREAM_ORDER:
+                entry = tc.get(name)
+                if entry is None:
+                    continue
+                if not isinstance(entry, dict) or not _is_vec3(entry.get("lever_arm_m")):
+                    warns.append(f"truth_metadata.json: truth_config.{name}.lever_arm_m must be 3 finite numbers; "
+                                 f"{name} raw-measurement reference error disabled")
+                    del tc[name]
+            meta["truth_config"] = tc
+
+    cor = meta.get("corruptions")
+    if cor is not None:
+        if not isinstance(cor, dict):
+            warns.append(f"truth_metadata.json: corruptions must be an object, got {_type_name(cor)}; "
+                         "outlier metrics disabled")
+            del meta["corruptions"]
+        elif "outliers" in cor:
+            o = cor["outliers"]
+            ok = (isinstance(o, dict) and o.get("stream") in STREAM_ORDER and isinstance(o.get("t_ns"), list)
+                  and all(isinstance(x, int) and not isinstance(x, bool) for x in o["t_ns"]))
+            if not ok:
+                warns.append("truth_metadata.json: corruptions.outliers must be an object with 'stream' "
+                             f"({' or '.join(STREAM_ORDER)}) and an integer list 't_ns'; outlier metrics disabled")
+                cor = {k: v for k, v in cor.items() if k != "outliers"}
+            meta["corruptions"] = cor
+    return meta, warns
 
 
 def validate_dataset(dataset_dir: str | Path, normalize_imu: bool = False) -> ValidationResult:
@@ -377,8 +459,10 @@ def validate_dataset(dataset_dir: str | Path, normalize_imu: bool = False) -> Va
     path = Path(dataset_dir)
     result, _ = _inspect(path, normalize_imu)
     if path.is_dir() and (path / "ground_truth.csv").exists():
-        truth_errors, _ = _inspect_truth(path)
+        truth_errors, gt = _inspect_truth(path)
         result.errors += [f"[evaluation] {e}" for e in truth_errors]
+        if gt is not None:
+            result.warnings += [f"[evaluation] {w}" for w in gt.warnings]
         result.summary["ground_truth"] = "present, invalid" if truth_errors else "present, valid"
         result.ok = result.ok and not truth_errors
     else:

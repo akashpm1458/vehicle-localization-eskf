@@ -49,7 +49,8 @@ python -m vehicle_localization run --data path/to/recording --mode eskf15_all --
 
 ### 5. Without ground truth
 
-If `ground_truth.csv` is absent or malformed (including duplicate or decreasing timestamps):
+If `ground_truth.csv` is absent, malformed (including duplicate or decreasing timestamps), or
+doesn't overlap the estimate timestamps:
 
 - Accuracy metrics are turned off.
 - Estimation, the innovation logs (`innovations.csv`), NIS statistics and timing checks all still
@@ -58,7 +59,8 @@ If `ground_truth.csv` is absent or malformed (including duplicate or decreasing 
 If you do have a reference trajectory (for example from an RTK/INS system), save it as
 `ground_truth.csv`. The evaluator interpolates it to the estimate times (linear for vectors, SLERP
 for attitude) inside the overlap only. It never extrapolates and never does nearest-neighbour
-matching.
+matching. Check `evaluation_available` and `truth_overlap` in the run's `metrics.json` to see how
+much of the run was actually evaluated.
 
 ---
 

@@ -220,6 +220,29 @@ Holds the true simulation parameters (noise, true lever arms, bias settings), th
 seeds, the sampled prior error, and the corruption labels (for example, the indices and times of
 injected outliers).
 
+The file is optional. Its top level must be a JSON object, and the fields the evaluator uses are
+type-checked:
+
+| Field | Required form | Used for | If missing or malformed |
+|---|---|---|---|
+| `truth_config.gnss.lever_arm_m`, `truth_config.lidar.lever_arm_m` | 3 finite numbers | raw-measurement reference errors | that stream's reference error is skipped, with a warning |
+| `corruptions.outliers` | object with `stream` (`gnss` or `lidar`) and an integer list `t_ns` | outlier recall and false-rejection rate | outlier metrics are skipped, with a warning |
+
+An unreadable file, or one whose top level isn't an object (for example `[]` or `null`), turns off
+only those two evaluations. The ground truth itself is still used.
+
+### Overlap between truth and estimates
+
+Accuracy needs ground truth at, or around, the estimate timestamps. If the truth covers a different
+time interval:
+
+- The run's `metrics.json` sets `"evaluation_available": false` and explains why in `accuracy`.
+- `truth_overlap` records how many estimate samples were matched and both time spans.
+- The estimates, covariance and innovation statistics are still saved.
+- Truth-dependent plots are skipped.
+
+With partial overlap, accuracy is computed over the overlapping samples only.
+
 ---
 
 ## 9. What the validator rejects
@@ -243,3 +266,6 @@ injected outliers).
 | Measurements outside IMU coverage | warning, then skipped |
 | Missing `ground_truth.csv` | allowed (accuracy metrics off) |
 | Malformed `ground_truth.csv`, or duplicate/decreasing truth timestamps | `[evaluation]` error; estimation still runs, accuracy metrics off |
+| `metadata.json` or `initial_prior.json` that isn't a JSON object (`null`, `[]`, ...) or has wrongly typed fields (`seed`, `duration_s`, `sensors`, `frames`, `units`, `timing`, `name`) | rejected |
+| `truth_metadata.json` that is unreadable, not an object, or has malformed lever arms or outlier labels | `[evaluation]` warning; only the dependent metric is skipped |
+| Ground truth that doesn't overlap the estimate times | estimation runs; accuracy marked unavailable (detected at evaluation time) |

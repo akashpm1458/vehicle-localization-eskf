@@ -24,9 +24,19 @@ def align_truth(truth: GroundTruth, t_ns: np.ndarray) -> tuple[dict, np.ndarray]
     t_ns = np.asarray(t_ns, dtype=np.int64)
     idx = np.searchsorted(truth.t_ns, t_ns)
     idx_c = np.clip(idx, 0, truth.t_ns.size - 1)
-    if np.all(truth.t_ns[idx_c] == t_ns):  # exact timestamps (synthetic data)
+    exact = truth.t_ns[idx_c] == t_ns
+    if exact.all():  # exact timestamps (synthetic data)
         return {k: getattr(truth, k)[idx_c] for k in ("p", "v", "q", "ba", "bg")}, np.ones(t_ns.size, bool)
     inside = (t_ns >= truth.t_ns[0]) & (t_ns <= truth.t_ns[-1])
+    if truth.t_ns.size < 2:
+        inside = exact  # a single truth sample cannot be interpolated
+    if not inside.any():
+        # No overlap: return correctly shaped empty arrays instead of failing later.
+        empty = {k: np.zeros((0, 3)) for k in ("p", "v", "ba", "bg")}
+        empty["q"] = np.zeros((0, 4))
+        return empty, inside
+    if truth.t_ns.size < 2:
+        return {k: getattr(truth, k)[idx_c[inside]] for k in ("p", "v", "q", "ba", "bg")}, inside
     tq = t_ns[inside].astype(float)
     tt = truth.t_ns.astype(float)
     out = {k: np.column_stack([np.interp(tq, tt, getattr(truth, k)[:, j]) for j in range(3)])
@@ -186,10 +196,14 @@ def external_reference_errors(streams: dict, truth: GroundTruth) -> dict:
     arms = truth.metadata.get("truth_config", {})
     out = {}
     for name, s in streams.items():
-        lever = arms.get(name, {}).get("lever_arm_m")
+        entry = arms.get(name) if isinstance(arms, dict) else None
+        lever = entry.get("lever_arm_m") if isinstance(entry, dict) else None
         if lever is None or s.t_ns.size == 0:
             continue
         tr, mask = align_truth(truth, s.t_ns)
+        if not mask.any():
+            out[name] = {"count": 0, "note": "no measurement falls inside the ground-truth time span"}
+            continue
         ref = tr["p"] + rotate_batch(tr["q"], np.tile(np.asarray(lever, float), (int(mask.sum()), 1)))
         e = ref - s.z[mask]
         out[name] = {"count": int(mask.sum()), "rmse_3d_m": _rmse(e), "rmse_horizontal_m": _rmse(e[:, :2]),
@@ -199,14 +213,29 @@ def external_reference_errors(streams: dict, truth: GroundTruth) -> dict:
 
 def evaluate_run(run, truth: GroundTruth | None, n_states: int, burn_in_s: float = 10.0,
                  dropouts: list[tuple[float, float]] | None = None, outlier_labels: dict | None = None) -> dict:
-    """Metrics for one run. Without truth, only innovation statistics are reported."""
+    """Metrics for one run.
+
+    ``metrics["evaluation_available"]`` says whether accuracy metrics exist. They are
+    unavailable without truth, or when truth does not overlap the estimate timestamps;
+    innovation statistics are always reported.
+    """
     inn = run.innovations if isinstance(run.innovations, dict) else _inn_to_arrays(run.innovations)
-    metrics: dict = {"innovations": innovation_stats(inn)}
+    metrics: dict = {"innovations": innovation_stats(inn), "evaluation_available": False}
     if truth is None:
         metrics["accuracy"] = "unavailable (no ground truth)"
         return metrics
     es = error_series(run, truth)
     t = es["t_s"]
+    t_run = np.asarray(run.t_ns) * 1e-9
+    metrics["truth_overlap"] = {"samples": int(t.size), "of": int(t_run.size),
+                                "estimate_span_s": [float(t_run[0]), float(t_run[-1])] if t_run.size else None,
+                                "truth_span_s": [float(truth.t_ns[0] * 1e-9), float(truth.t_ns[-1] * 1e-9)]}
+    if t.size == 0:
+        metrics["accuracy"] = ("unavailable (ground truth does not overlap the estimate timestamps: truth "
+                               f"{truth.t_ns[0] * 1e-9:g}-{truth.t_ns[-1] * 1e-9:g} s, estimates "
+                               f"{t_run[0]:g}-{t_run[-1]:g} s)")
+        return metrics
+    metrics["evaluation_available"] = True
     duration = float(t[-1] - t[0]) if t.size else 0.0
     burn = burn_in_s
     note = None

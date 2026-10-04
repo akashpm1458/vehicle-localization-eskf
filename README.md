@@ -2,7 +2,7 @@
 
 Estimate a vehicle's motion from noisy sensors using an **error-state Kalman filter (ESKF)**.
 
-> **Status: working.** All required steps are implemented and tested: 140 tests pass, and every engineering target was met on seeds 7, 23 and 42. The results below come from real runs on a remote cloud machine, **not** the target laptop. Re-run `demo` to get numbers for your own machine.
+> **Status: working.** All required steps are implemented and tested: 165 tests pass, and every engineering target was met on seeds 7, 23 and 42. The results below come from real runs on a remote cloud machine, **not** the target laptop. Re-run `demo` to get numbers for your own machine.
 
 ---
 

@@ -87,6 +87,9 @@ class InitialPrior:
 
     @staticmethod
     def from_json_dict(d: dict) -> "InitialPrior":
+        if not isinstance(d, dict):
+            raise ValueError(f"initial_prior.json: top level must be a JSON object, got "
+                             f"{'null' if d is None else type(d).__name__}")
         quat = d["quaternion"]
         if not isinstance(quat, dict) or quat.get("order") != "xyzw":
             raise ValueError("initial_prior.quaternion must be {'order': 'xyzw', 'value': [...]}")

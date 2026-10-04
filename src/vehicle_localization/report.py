@@ -100,7 +100,8 @@ def make_suite_figures(suite_dir: Path, cfg: dict, seed: int) -> list[Path]:
         out.append(plot_velocity_attitude_error({"eskf9_all": es("E2_eskf9_all"), "eskf15_all": es("E2_eskf15_all")},
                                                 fig_dir / FIGURES[4][0], "Biased data (E2)", dpi=dpi))
     if have("E8_eskf15_all_gating_on"):
-        o = truth["biased_outliers"].metadata["corruptions"]["outliers"]
+        o = truth["biased_outliers"].metadata.get("corruptions", {}).get("outliers") or {"stream": "gnss",
+                                                                                        "t_ns": []}
         out.append(plot_nis(run("E8_eskf15_all_gating_on").innovations, fig_dir / FIGURES[6][0],
                             "E8: eskf15_all with injected GNSS outliers, gating on",
                             outlier_t_ns=(o["stream"], np.asarray(o["t_ns"])), dpi=dpi,
@@ -295,11 +296,14 @@ def write_report(suite_dir: Path, cfg: dict, status: dict, host: str, title: str
         p = data_dir / name / "metadata.json"
         if p.exists():
             m = read_json(p)
-            tm = read_json(data_dir / name / "truth_metadata.json")
+            gt = load_ground_truth(data_dir / name)  # validated truth metadata
+            tm = gt.metadata if gt is not None else {}
             o = tm.get("corruptions", {}).get("outliers")
-            gen_rows.append([name, m["seed"], m["duration_s"], m["imu_rate_hz"], m["sensors"]["gnss"]["count"],
-                             m["sensors"]["lidar"]["count"], tm["truth_config"]["bias_mode"],
-                             f"{len(o['indices'])} GNSS outliers" if o else "none"])
+            sensors = m.get("sensors", {})
+            gen_rows.append([name, m.get("seed"), m.get("duration_s"), m.get("imu_rate_hz"),
+                             sensors.get("gnss", {}).get("count"), sensors.get("lidar", {}).get("count"),
+                             tm.get("truth_config", {}).get("bias_mode", "unknown"),
+                             f"{len(o['t_ns'])} {o['stream'].upper()} outliers" if o else "none"])
     L.append(_table(["dataset", "seed", "duration [s]", "IMU [Hz]", "GNSS meas.", "LiDAR meas.", "true biases",
                      "corruption"], gen_rows))
     L.append("")

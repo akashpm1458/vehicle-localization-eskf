@@ -84,14 +84,17 @@ def execute_run(dataset_dir: Path, cfg: dict, mode: str, out_dir: Path, *, estim
         warnings_list.append(f"ground truth unusable, accuracy metrics disabled: {exc}")
     labels = None
     if truth is not None:
-        o = truth.metadata.get("corruptions", {}).get("outliers")
+        warnings_list += truth.warnings  # e.g. malformed optional truth_metadata.json
+        o = truth.metadata.get("corruptions", {}).get("outliers")  # validated by load_ground_truth
         if o:
             labels = {"stream": o["stream"], "t_ns": o["t_ns"]}
     intervals = sorted({(a, b) for _, a, b in (dropouts or [])})
     metrics = evaluate_run(result, truth, result.n_states, cfg["report"]["burn_in_s"], dropouts=intervals,
                            outlier_labels=labels)
-    if truth is not None:
+    if metrics["evaluation_available"]:
         metrics["external_position_reference_errors"] = external_reference_errors(ds.streams, truth)
+    elif truth is not None:
+        warnings_list.append(f"accuracy metrics disabled: {metrics['accuracy']}")
     metrics["counts"] = result.counts
     metrics["dropouts_applied"] = result.info["dropouts"]
     metrics["warnings"] = warnings_list
@@ -267,13 +270,15 @@ SUMMARY_FIELDS = [
 def summarize(spec: RunSpec, metrics: dict, seed: int) -> dict:
     row = {"experiment": spec.experiment, "run_id": spec.run_id, "seed": seed, "mode": spec.mode,
            "dataset": spec.dataset, "description": spec.description}
+    avail = metrics.get("evaluation_available", False)  # accuracy fields are None when unavailable
     for name, (block, key) in SUMMARY_FIELDS:
-        row[name] = metrics[block][key]
-    me = metrics["after_burn_in"]["position_mean_error_axis_m"]
+        row[name] = metrics[block][key] if avail else None
+    ab = metrics["after_burn_in"] if avail else {}
+    me = ab.get("position_mean_error_axis_m") or [None] * 3
     row["pos_mean_err_x_m"], row["pos_mean_err_y_m"], row["pos_mean_err_z_m"] = me
-    mb = metrics["after_burn_in"]["position_mean_error_body_axis_m"]
+    mb = ab.get("position_mean_error_body_axis_m") or [None] * 3
     row["pos_mean_err_body_x_m"], row["pos_mean_err_body_y_m"], row["pos_mean_err_body_z_m"] = mb
-    cov = metrics["after_burn_in"]["coverage_3sigma"]["position_axis"]
+    cov = ab.get("coverage_3sigma", {}).get("position_axis")
     row["pos_3sigma_coverage_min"] = min(cov) if cov else None
     for s in ("gnss", "lidar"):
         st = metrics["innovations"].get(s)
@@ -329,23 +334,29 @@ def evaluate_targets(rows: list[dict], seed: int) -> list[dict]:
     t = []
 
     def add(name, value, threshold, met, note=""):
+        vals = value if isinstance(value, list) else [value]
+        if any(v is None for v in vals):  # accuracy unavailable -> the target cannot be claimed as met
+            met, note = False, (note + "; " if note else "") + "accuracy metrics unavailable"
         t.append({"target": name, "seed": seed, "value": value, "threshold": threshold, "met": bool(met), "note": note})
+
+    def lt(a, b):
+        return a is not None and b is not None and a < b
 
     if "E2_eskf15_all" in by:
         v = by["E2_eskf15_all"]["pos_rmse_3d_m"]
-        add("eskf15_all post-initialization 3-D position RMSE (biased case)", v, "< 1.0 m", v < 1.0)
+        add("eskf15_all post-initialization 3-D position RMSE (biased case)", v, "< 1.0 m", lt(v, 1.0))
     if "E2_eskf15_all" in by and "E2_imu_only" in by:
         a, b = by["E2_eskf15_all"]["pos_rmse_3d_whole_m"], by["E2_imu_only"]["pos_rmse_3d_whole_m"]
         add("full aided estimator beats IMU-only over the complete run (position RMSE)", [a, b], "eskf15_all < imu_only",
-            a < b)
+            lt(a, b))
     if "E8_eskf15_all_gating_on" in by:
         v = by["E8_eskf15_all_gating_on"]["outlier_recall"]
         add("injected GNSS outlier recall with gating (eskf15_all)", v, ">= 0.90", v is not None and v >= 0.9,
-            f"false rejection rate of clean GNSS: {by['E8_eskf15_all_gating_on']['false_rejection_rate']:.4f}")
+            f"false rejection rate of clean GNSS: {by['E8_eskf15_all_gating_on']['false_rejection_rate']}")
     if "E2_eskf15_all" in by and "E2_eskf9_all" in by:
         a, b = by["E2_eskf15_all"]["pos_rmse_3d_m"], by["E2_eskf9_all"]["pos_rmse_3d_m"]
         add("bias estimation improves position RMSE in E2 (investigate if not)", [a, b], "eskf15_all < eskf9_all",
-            a < b, "comparison target, not a guaranteed result")
+            lt(a, b), "comparison target, not a guaranteed result")
     return t
 
 
